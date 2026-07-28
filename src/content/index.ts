@@ -1,9 +1,12 @@
+import { buildFaviconDataUrl } from "../core/favicon";
 import { pickProfile } from "../core/matcher";
 import type { Profile } from "../core/profile";
 import { buildCss } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
+import { createFaviconApplier } from "./faviconApplier";
 import { applyStyle } from "./styleInjector";
+import { createTitleApplier } from "./titleApplier";
 
 declare global {
   interface Window {
@@ -11,8 +14,13 @@ declare global {
   }
 }
 
+const favicon = createFaviconApplier();
+const title = createTitleApplier();
+
 function apply(profile: Profile | null): void {
   applyStyle(profile ? buildCss(profile) : null);
+  favicon.set(profile ? buildFaviconDataUrl(profile.faviconLetters, profile.headerBackground) : null);
+  title.set(profile?.titlePrefix ?? "");
 }
 
 async function refresh(): Promise<void> {
