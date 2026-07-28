@@ -7,13 +7,19 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
+// Hosts are case-insensitive: patterns are free text in the options form, the browser
+// lower-cases them when granting permissions and registering the content script, and
+// URL.hostname is always lower case — so "*://VM.corp/*" would otherwise be granted
+// and registered, yet never match here.
 function matchesHost(hostPattern: string, hostname: string): boolean {
-  if (hostPattern === "*") return true;
-  if (hostPattern.startsWith("*.")) {
-    const suffix = hostPattern.slice(2);
-    return hostname === suffix || hostname.endsWith(`.${suffix}`);
+  const pattern = hostPattern.toLowerCase();
+  const host = hostname.toLowerCase();
+  if (pattern === "*") return true;
+  if (pattern.startsWith("*.")) {
+    const suffix = pattern.slice(2);
+    return host === suffix || host.endsWith(`.${suffix}`);
   }
-  return hostname === hostPattern;
+  return host === pattern;
 }
 
 /** Browser-style match pattern test. The port is ignored, as in the browser APIs. */

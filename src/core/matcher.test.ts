@@ -37,6 +37,12 @@ describe("matchesPattern", () => {
     expect(matchesPattern("*://*.corp/*", "https://notcorp/vmui/")).toBe(false);
   });
 
+  it("compares the host case-insensitively", () => {
+    expect(matchesPattern("*://VM.corp/*", "https://vm.corp/vmui/")).toBe(true);
+    expect(matchesPattern("*://*.CORP/*", "https://a.b.corp/vmui/")).toBe(true);
+    expect(matchesPattern("*://vm.corp/*", "https://VM.corp/vmui/")).toBe(true);
+  });
+
   it("matches the path glob against path and query", () => {
     expect(matchesPattern("*://vm.corp/select/*", "https://vm.corp/select/0/vmui/")).toBe(true);
     expect(matchesPattern("*://vm.corp/select/*", "https://vm.corp/vmui/")).toBe(false);
