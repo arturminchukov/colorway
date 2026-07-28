@@ -23,6 +23,20 @@ describe("buildFaviconDataUrl", () => {
     expect(svg).not.toContain(">&<");
   });
 
+  it("keeps a surrogate pair intact when the emoji is not first", () => {
+    const url = buildFaviconDataUrl("A🔥", "#c62828") ?? "";
+    expect(url.startsWith("data:image/svg+xml,")).toBe(true);
+    expect(decodeURIComponent(url)).toContain(">A🔥<");
+  });
+
+  it("takes two code points, not two UTF-16 units, from an emoji-only value", () => {
+    expect(decodeURIComponent(buildFaviconDataUrl("🔥💧", "#c62828") ?? "")).toContain(">🔥💧<");
+  });
+
+  it("drops internal whitespace instead of rendering it", () => {
+    expect(decodeURIComponent(buildFaviconDataUrl(" A B ", "#c62828") ?? "")).toContain(">AB<");
+  });
+
   it("returns null for an invalid background color", () => {
     expect(buildFaviconDataUrl("P", "red")).toBeNull();
   });

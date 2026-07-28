@@ -14,11 +14,17 @@ function escapeXml(value: string): string {
  */
 export function buildFaviconDataUrl(letters: string, background: string): string | null {
   if (!isValidColor(background)) return null;
-  const text = letters.trim().slice(0, 2).toUpperCase();
-  if (!text) return null;
+
+  // Slice by code points, not UTF-16 units: String.slice() would cut a surrogate
+  // pair in half ("A🔥" -> "A\ud83d") and encodeURIComponent() throws URIError on
+  // the lone surrogate. Whitespace carries nothing on a 64px icon, so it is
+  // dropped outright instead of surviving into the rendered text.
+  const glyphs = Array.from(letters.replace(/\s+/g, "")).slice(0, 2);
+  if (glyphs.length === 0) return null;
+  const text = glyphs.join("").toUpperCase();
 
   const foreground = contrastText(background);
-  const fontSize = text.length > 1 ? 30 : 42;
+  const fontSize = glyphs.length > 1 ? 30 : 42;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
     `<rect width="64" height="64" rx="12" fill="${background}"/>` +
