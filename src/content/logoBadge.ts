@@ -4,6 +4,7 @@ const OWN_ATTR = "data-color-vmui-caption";
 
 export function createLogoBadge(): {
   set(caption: string, color: string): void;
+  clear(): void;
   isHeaderFound(): boolean;
 } {
   let caption = "";
@@ -56,6 +57,17 @@ export function createLogoBadge(): {
       color = nextColor;
       apply();
       start();
+    },
+    // No profile applies any more: take the caption out and stop watching the whole
+    // document. The observer is dropped, not just disconnected, so start() can build
+    // a fresh one if a profile comes back.
+    clear() {
+      caption = "";
+      color = "";
+      headerFound = false;
+      remove();
+      observer?.disconnect();
+      observer = null;
     },
     isHeaderFound() {
       return headerFound;

@@ -1,6 +1,6 @@
 import { applyPrefix, stripPrefix } from "../core/title";
 
-export function createTitleApplier(): { set(prefix: string): void } {
+export function createTitleApplier(): { set(prefix: string): void; clear(): void } {
   let prefix = "";
   let observer: MutationObserver | null = null;
 
@@ -32,14 +32,18 @@ export function createTitleApplier(): { set(prefix: string): void } {
     if (document.head) observer.observe(document.head, { childList: true });
   };
 
+  // At document_start there may be no <head> and no <title> to observe yet;
+  // rebind once the document is parsed.
+  const onDomReady = (): void => {
+    observe();
+    apply();
+  };
+
   const start = (): void => {
     observe();
-    if (!document.head) {
-      document.addEventListener("DOMContentLoaded", () => {
-        observe();
-        apply();
-      });
-    }
+    // Registering the same function object twice is a no-op, so repeated set()
+    // calls cannot stack listeners up.
+    if (!document.head) document.addEventListener("DOMContentLoaded", onDomReady);
   };
 
   return {
@@ -48,6 +52,14 @@ export function createTitleApplier(): { set(prefix: string): void } {
       prefix = next;
       apply();
       start();
+    },
+    // No profile applies any more: take the prefix off and stop watching, the pending
+    // DOMContentLoaded rebind included — otherwise it would revive the observer later.
+    clear() {
+      if (prefix) document.title = stripPrefix(document.title, prefix);
+      prefix = "";
+      document.removeEventListener("DOMContentLoaded", onDomReady);
+      observer?.disconnect();
     },
   };
 }

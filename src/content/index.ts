@@ -27,9 +27,21 @@ let activeProfile: Profile | null = null;
 function apply(profile: Profile | null): void {
   activeProfile = profile;
   applyStyle(profile ? buildCss(profile) : null);
-  favicon.set(profile ? buildFaviconDataUrl(profile.faviconLetters, profile.headerBackground) : null);
-  title.set(profile?.titlePrefix ?? "");
-  badge.set(profile?.logoCaption ?? "", profile?.logoColor ?? "");
+
+  // No profile applies: undo whatever we did and leave no observers behind — the page
+  // must cost nothing while the extension does nothing there. Reached both on the very
+  // first run and when a profile stops matching after a settings change, hence clear()
+  // rather than an early return; a later refresh() re-applies and re-subscribes.
+  if (!profile) {
+    favicon.clear();
+    title.clear();
+    badge.clear();
+    return;
+  }
+
+  favicon.set(buildFaviconDataUrl(profile.faviconLetters, profile.headerBackground));
+  title.set(profile.titlePrefix);
+  badge.set(profile.logoCaption, profile.logoColor);
 }
 
 async function refresh(): Promise<void> {

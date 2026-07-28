@@ -1,7 +1,7 @@
 const OWN_ATTR = "data-color-vmui-icon";
 const ORIGINAL_REL_ATTR = "data-color-vmui-was-rel";
 
-export function createFaviconApplier(): { set(dataUrl: string | null): void } {
+export function createFaviconApplier(): { set(dataUrl: string | null): void; clear(): void } {
   let current: string | null = null;
   let observer: MutationObserver | null = null;
 
@@ -79,6 +79,13 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void } {
       current = dataUrl;
       apply();
       observe();
+    },
+    // No profile applies any more: take our link out, give vmui its icons back and
+    // stop watching. observe() rebuilds the subscription if a profile comes back.
+    clear() {
+      current = null;
+      apply();
+      observer?.disconnect();
     },
   };
 }
