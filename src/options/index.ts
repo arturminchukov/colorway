@@ -20,6 +20,18 @@ const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
 
 let settings: Settings = { version: 1, profiles: [] };
 
+// Page-level status for actions (add/remove) that have no surviving per-card
+// element to report into once render() rebuilds the list.
+let pageStatus: { className: "muted" | "error"; text: string } | null = null;
+
+function renderPageStatus(): HTMLParagraphElement | null {
+  if (!pageStatus) return null;
+  const el = document.createElement("p");
+  el.className = pageStatus.className;
+  el.textContent = pageStatus.text;
+  return el;
+}
+
 function labelled(text: string, control: HTMLElement): HTMLLabelElement {
   const label = document.createElement("label");
   label.append(text, control);
@@ -127,11 +139,37 @@ function renderCard(profile: Profile): HTMLElement {
   remove.addEventListener("click", () => {
     const remaining = settings.profiles.filter((item) => item.id !== profile.id);
     const orphaned = patternsToRevoke(profile, remaining);
-    settings = { ...settings, profiles: remaining };
-    void settingsRepo
-      .save(settings)
-      .then(() => (orphaned.length ? browser.permissions.remove({ origins: orphaned }) : undefined))
-      .then(() => render());
+    const nextSettings: Settings = { ...settings, profiles: remaining };
+    let saved = false;
+
+    settingsRepo
+      .save(nextSettings)
+      .then(() => {
+        saved = true;
+        settings = nextSettings;
+        return orphaned.length ? browser.permissions.remove({ origins: orphaned }) : undefined;
+      })
+      .then(() => {
+        pageStatus = null;
+        render();
+      })
+      .catch((error: unknown) => {
+        if (!saved) {
+          // settingsRepo.save() itself failed: nothing was persisted, the card is
+          // still on screen, so report inline like the "Сохранить" handler does.
+          status.className = "error";
+          status.textContent = `Ошибка удаления: ${String(error)}`;
+          return;
+        }
+        // The profile was already persisted as removed, so the card must go away
+        // too — but by the time render() runs, there's no per-card status left,
+        // hence the page-level message about the dangling permission.
+        pageStatus = {
+          className: "error",
+          text: `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(error)}`,
+        };
+        render();
+      });
   });
 
   return card;
@@ -143,6 +181,9 @@ function render(): void {
   const title = document.createElement("h1");
   title.textContent = "color-vmui";
   app.append(title);
+
+  const pageStatusEl = renderPageStatus();
+  if (pageStatusEl) app.append(pageStatusEl);
 
   if (settings.profiles.length === 0) {
     const empty = document.createElement("p");
@@ -156,8 +197,18 @@ function render(): void {
   const add = document.createElement("button");
   add.textContent = "Добавить профиль";
   add.addEventListener("click", () => {
-    settings = { ...settings, profiles: [...settings.profiles, createProfile("vmui")] };
-    void settingsRepo.save(settings).then(() => render());
+    const nextSettings: Settings = { ...settings, profiles: [...settings.profiles, createProfile("vmui")] };
+    settingsRepo
+      .save(nextSettings)
+      .then(() => {
+        settings = nextSettings;
+        pageStatus = null;
+        render();
+      })
+      .catch((error: unknown) => {
+        pageStatus = { className: "error", text: `Не удалось добавить профиль: ${String(error)}` };
+        render();
+      });
   });
   app.append(add);
 }
