@@ -890,6 +890,14 @@ export function createSettingsRepo(area: StorageArea): SettingsRepo {
 }
 ```
 
+> **Поправка, внесённая при исполнении (одобрена владельцем).** Код выше имеет два
+> дефекта, найденных на ревью: `load()` отдаёт общий объект `DEFAULT_SETTINGS` по ссылке, а
+> `isSettings` не проверяет форму отдельных профилей, из-за чего запись вида
+> `{version: 1, profiles: [123]}` доходит до `pickProfile` и роняет content script.
+> Реализация должна: возвращать свежую копию дефолтов (`structuredClone`) и отсеивать
+> профили неправильной формы, сохраняя валидные. Проверяются все поля `Profile`: восемь
+> строковых, `enabled` как boolean и `patterns` как массив строк.
+
 - [ ] **Step 4: Реализовать `src/shared/browser.ts`**
 
 ```ts
