@@ -21,7 +21,10 @@ const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
 let settings: Settings = { version: 1, profiles: [] };
 
 // Page-level status for actions (add/remove) that have no surviving per-card
-// element to report into once render() rebuilds the list.
+// element to report into once render() rebuilds the list. Only a successful
+// add or delete clears it, since both trigger a render(); a successful
+// "Сохранить" leaves it untouched because it reports into its own per-card
+// status element and never rebuilds the page.
 let pageStatus: { className: "muted" | "error"; text: string } | null = null;
 
 function renderPageStatus(): HTMLParagraphElement | null {
@@ -120,11 +123,13 @@ function renderCard(profile: Profile): HTMLElement {
     browser.permissions
       .request({ origins: next.patterns })
       .then(async (granted) => {
-        settings = {
+        const nextSettings: Settings = {
           ...settings,
           profiles: settings.profiles.map((item) => (item.id === next.id ? next : item)),
         };
-        await settingsRepo.save(settings);
+        await settingsRepo.save(nextSettings);
+        // Persisted successfully: the in-memory state may now follow storage.
+        settings = nextSettings;
         status.className = granted ? "muted" : "error";
         status.textContent = granted
           ? "Сохранено"
@@ -140,35 +145,46 @@ function renderCard(profile: Profile): HTMLElement {
     const remaining = settings.profiles.filter((item) => item.id !== profile.id);
     const orphaned = patternsToRevoke(profile, remaining);
     const nextSettings: Settings = { ...settings, profiles: remaining };
-    let saved = false;
 
     settingsRepo
       .save(nextSettings)
-      .then(() => {
-        saved = true;
+      .then(async () => {
+        // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
-        return orphaned.length ? browser.permissions.remove({ origins: orphaned }) : undefined;
-      })
-      .then(() => {
-        pageStatus = null;
+
+        // permissions.remove(), like permissions.request(), resolves with a boolean
+        // (true only when the permission was actually removed) and rejects solely on
+        // genuine API misuse — both a resolved `false` and a rejection are failures.
+        let revoked = true;
+        let revokeError: unknown;
+        if (orphaned.length > 0) {
+          try {
+            revoked = await browser.permissions.remove({ origins: orphaned });
+          } catch (error) {
+            revoked = false;
+            revokeError = error;
+          }
+        }
+
+        // The profile was already persisted as removed, so the card must go away
+        // too — but by the time render() runs, there's no per-card status left,
+        // hence the page-level message about a dangling permission.
+        pageStatus = revoked
+          ? null
+          : {
+              className: "error",
+              text: revokeError
+                ? `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(revokeError)}`
+                : `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения`,
+            };
         render();
       })
       .catch((error: unknown) => {
-        if (!saved) {
-          // settingsRepo.save() itself failed: nothing was persisted, the card is
-          // still on screen, so report inline like the "Сохранить" handler does.
-          status.className = "error";
-          status.textContent = `Ошибка удаления: ${String(error)}`;
-          return;
-        }
-        // The profile was already persisted as removed, so the card must go away
-        // too — but by the time render() runs, there's no per-card status left,
-        // hence the page-level message about the dangling permission.
-        pageStatus = {
-          className: "error",
-          text: `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(error)}`,
-        };
-        render();
+        // settingsRepo.save() itself failed: nothing was persisted, the in-memory
+        // state stays untouched and the card is still on screen, so report inline
+        // like the "Сохранить" handler does.
+        status.className = "error";
+        status.textContent = `Ошибка удаления: ${String(error)}`;
       });
   });
 
