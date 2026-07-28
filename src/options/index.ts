@@ -2,6 +2,7 @@ import { patternsToRevoke } from "../core/permissions";
 import { createProfile, type Profile, type Settings } from "../core/profile";
 import { isValidColor } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
+import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const app = document.getElementById("app")!;
 
@@ -20,19 +21,25 @@ const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
 
 let settings: Settings = { version: 1, profiles: [] };
 
-// Page-level status for actions (add/remove) that have no surviving per-card
-// element to report into once render() rebuilds the list. Only a successful
-// add or delete clears it, since both trigger a render(); a successful
-// "Сохранить" leaves it untouched because it reports into its own per-card
-// status element and never rebuilds the page.
-let pageStatus: { className: "muted" | "error"; text: string } | null = null;
+// Cards the user has typed into since the last render(). Such a card must never be
+// rebuilt from storage — that would throw away the input the user is still editing.
+const dirtyProfileIds = new Set<string>();
 
-function renderPageStatus(): HTMLParagraphElement | null {
-  if (!pageStatus) return null;
-  const el = document.createElement("p");
-  el.className = pageStatus.className;
-  el.textContent = pageStatus.text;
-  return el;
+// Settings changed elsewhere while a card was dirty, so the page was left standing
+// with stale values in every other card and still owes the user a redraw.
+let pendingExternalUpdate = false;
+
+// Page-level status for actions (add/remove) that have no surviving per-card element
+// to report into once render() rebuilds the list, and for notices about settings
+// changed elsewhere. The element outlives render(), so it can also be updated
+// without rebuilding the page.
+const pageStatusEl = document.createElement("p");
+pageStatusEl.hidden = true;
+
+function setPageStatus(status: { className: "muted" | "error"; text: string } | null): void {
+  pageStatusEl.hidden = status === null;
+  pageStatusEl.className = status?.className ?? "";
+  pageStatusEl.textContent = status?.text ?? "";
 }
 
 function labelled(text: string, control: HTMLElement): HTMLLabelElement {
@@ -65,6 +72,12 @@ function readPatterns(area: HTMLTextAreaElement): string[] {
 function renderCard(profile: Profile): HTMLElement {
   const card = document.createElement("section");
   card.className = "card";
+
+  // Both events bubble, so one pair of listeners covers every control in the card:
+  // "input" for the text fields, textarea and color pickers, "change" for the checkbox.
+  const markDirty = (): void => void dirtyProfileIds.add(profile.id);
+  card.addEventListener("input", markDirty);
+  card.addEventListener("change", markDirty);
 
   const enabled = document.createElement("input");
   enabled.type = "checkbox";
@@ -123,6 +136,16 @@ function renderCard(profile: Profile): HTMLElement {
     browser.permissions
       .request({ origins: next.patterns })
       .then(async (granted) => {
+        // `settings` follows storage (see the storage.onChanged listener below), so the
+        // profile may have been deleted elsewhere while this card stayed on screen.
+        // Writing it back would resurrect it, and reporting "Сохранено" for a write that
+        // stored nothing would be a lie.
+        if (!settings.profiles.some((item) => item.id === next.id)) {
+          status.className = "error";
+          status.textContent = "Профиль удалён в другом месте — сохранять нечего";
+          return;
+        }
+
         const nextSettings: Settings = {
           ...settings,
           profiles: settings.profiles.map((item) => (item.id === next.id ? next : item)),
@@ -130,10 +153,22 @@ function renderCard(profile: Profile): HTMLElement {
         await settingsRepo.save(nextSettings);
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
+        dirtyProfileIds.delete(next.id);
         status.className = granted ? "muted" : "error";
         status.textContent = granted
           ? "Сохранено"
           : "Сохранено, но доступ к этим адресам не выдан — профиль не применится";
+
+        // A redraw deferred because this card was dirty can happen now — but only
+        // when there is nothing left to read in the card, since render() rebuilds it
+        // together with its status line.
+        if (granted && pendingExternalUpdate && dirtyProfileIds.size === 0) {
+          setPageStatus({
+            className: "muted",
+            text: "Сохранено. Настройки менялись в другом месте — страница обновлена.",
+          });
+          render();
+        }
       })
       .catch((error: unknown) => {
         status.className = "error";
@@ -169,14 +204,16 @@ function renderCard(profile: Profile): HTMLElement {
         // The profile was already persisted as removed, so the card must go away
         // too — but by the time render() runs, there's no per-card status left,
         // hence the page-level message about a dangling permission.
-        pageStatus = revoked
-          ? null
-          : {
-              className: "error",
-              text: revokeError
-                ? `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(revokeError)}`
-                : `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения`,
-            };
+        setPageStatus(
+          revoked
+            ? null
+            : {
+                className: "error",
+                text: revokeError
+                  ? `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(revokeError)}`
+                  : `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения`,
+              },
+        );
         render();
       })
       .catch((error: unknown) => {
@@ -192,14 +229,16 @@ function renderCard(profile: Profile): HTMLElement {
 }
 
 function render(): void {
+  // Every card is rebuilt from `settings` here, so nothing is left half-edited
+  // and no external change stays owed to the user.
+  dirtyProfileIds.clear();
+  pendingExternalUpdate = false;
+
   app.replaceChildren();
 
   const title = document.createElement("h1");
   title.textContent = "color-vmui";
-  app.append(title);
-
-  const pageStatusEl = renderPageStatus();
-  if (pageStatusEl) app.append(pageStatusEl);
+  app.append(title, pageStatusEl);
 
   if (settings.profiles.length === 0) {
     const empty = document.createElement("p");
@@ -218,16 +257,44 @@ function render(): void {
       .save(nextSettings)
       .then(() => {
         settings = nextSettings;
-        pageStatus = null;
+        setPageStatus(null);
         render();
       })
       .catch((error: unknown) => {
-        pageStatus = { className: "error", text: `Не удалось добавить профиль: ${String(error)}` };
+        setPageStatus({ className: "error", text: `Не удалось добавить профиль: ${String(error)}` });
         render();
       });
   });
   app.append(add);
 }
+
+// options_ui.open_in_tab keeps this page alive indefinitely, so settings can change
+// under it — from the popup or from a second options tab. Follow storage instead of
+// writing a page-load snapshot back over those changes.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !(SETTINGS_KEY in changes)) return;
+  void settingsRepo.load().then((loaded) => {
+    // Our own writes come back through this listener too: `settings` already equals
+    // what was just stored, and redrawing would only wipe the status the user is reading.
+    if (JSON.stringify(loaded) === JSON.stringify(settings)) return;
+
+    settings = loaded;
+    if (dirtyProfileIds.size === 0) {
+      render();
+      return;
+    }
+
+    // Rebuilding now would destroy the input being typed, so the redraw waits for
+    // «Сохранить» (or a page reload) and the user is told the page is stale.
+    pendingExternalUpdate = true;
+    setPageStatus({
+      className: "muted",
+      text:
+        "Настройки изменились в другом месте. Ваши правки на месте — нажмите «Сохранить» " +
+        "в изменённой карточке, чтобы записать их, или перезагрузите страницу, чтобы увидеть новые значения.",
+    });
+  });
+});
 
 void settingsRepo.load().then((loaded) => {
   settings = loaded;
