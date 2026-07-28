@@ -62,6 +62,24 @@ function colorInput(value: string): HTMLInputElement {
   return input;
 }
 
+/**
+ * Gives back host access that no profile needs any more, so the extension does not
+ * hoard permissions. permissions.remove(), like permissions.request(), resolves with
+ * a boolean — true only when the permission was actually removed — and rejects solely
+ * on genuine API misuse, so both a resolved `false` and a rejection are failures.
+ * Returns null on success, otherwise a clause for the caller's message.
+ */
+async function revokeOrphaned(patterns: string[]): Promise<string | null> {
+  if (patterns.length === 0) return null;
+  try {
+    return (await browser.permissions.remove({ origins: patterns }))
+      ? null
+      : "не удалось отозвать разрешения";
+  } catch (error) {
+    return `не удалось отозвать разрешения: ${String(error)}`;
+  }
+}
+
 function readPatterns(area: HTMLTextAreaElement): string[] {
   return area.value
     .split("\n")
@@ -139,10 +157,14 @@ function renderCard(profile: Profile): HTMLElement {
         // `settings` follows storage (see the storage.onChanged listener below), so the
         // profile may have been deleted elsewhere while this card stayed on screen.
         // Writing it back would resurrect it, and reporting "Сохранено" for a write that
-        // stored nothing would be a lie.
-        if (!settings.profiles.some((item) => item.id === next.id)) {
+        // stored nothing would be a lie. The access just granted is orphaned as well.
+        const previous = settings.profiles.find((item) => item.id === next.id);
+        if (!previous) {
+          const strandedError = await revokeOrphaned(patternsToRevoke(next, settings.profiles));
           status.className = "error";
-          status.textContent = "Профиль удалён в другом месте — сохранять нечего";
+          status.textContent = strandedError
+            ? `Профиль удалён в другом месте — сохранять нечего; ${strandedError}`
+            : "Профиль удалён в другом месте — сохранять нечего";
           return;
         }
 
@@ -154,15 +176,22 @@ function renderCard(profile: Profile): HTMLElement {
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
         dirtyProfileIds.delete(next.id);
-        status.className = granted ? "muted" : "error";
-        status.textContent = granted
+
+        // Patterns this edit orphaned: held by the profile before the edit and by
+        // nothing in the settings just stored. Revoked only after a successful save,
+        // so a failed write never gives away access the profile still needs.
+        const revokeError = await revokeOrphaned(patternsToRevoke(previous, nextSettings.profiles));
+
+        const savedText = granted
           ? "Сохранено"
           : "Сохранено, но доступ к этим адресам не выдан — профиль не применится";
+        status.className = granted && !revokeError ? "muted" : "error";
+        status.textContent = revokeError ? `${savedText}; ${revokeError}` : savedText;
 
         // A redraw deferred because this card was dirty can happen now — but only
         // when there is nothing left to read in the card, since render() rebuilds it
         // together with its status line.
-        if (granted && pendingExternalUpdate && dirtyProfileIds.size === 0) {
+        if (granted && !revokeError && pendingExternalUpdate && dirtyProfileIds.size === 0) {
           setPageStatus({
             className: "muted",
             text: "Сохранено. Настройки менялись в другом месте — страница обновлена.",
@@ -177,8 +206,11 @@ function renderCard(profile: Profile): HTMLElement {
   });
 
   remove.addEventListener("click", () => {
+    // `settings` follows storage, so take the freshest version of this profile:
+    // its patterns may have been edited elsewhere since the card was rendered.
+    const removed = settings.profiles.find((item) => item.id === profile.id) ?? profile;
     const remaining = settings.profiles.filter((item) => item.id !== profile.id);
-    const orphaned = patternsToRevoke(profile, remaining);
+    const orphaned = patternsToRevoke(removed, remaining);
     const nextSettings: Settings = { ...settings, profiles: remaining };
 
     settingsRepo
@@ -187,32 +219,15 @@ function renderCard(profile: Profile): HTMLElement {
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
 
-        // permissions.remove(), like permissions.request(), resolves with a boolean
-        // (true only when the permission was actually removed) and rejects solely on
-        // genuine API misuse — both a resolved `false` and a rejection are failures.
-        let revoked = true;
-        let revokeError: unknown;
-        if (orphaned.length > 0) {
-          try {
-            revoked = await browser.permissions.remove({ origins: orphaned });
-          } catch (error) {
-            revoked = false;
-            revokeError = error;
-          }
-        }
+        const revokeError = await revokeOrphaned(orphaned);
 
         // The profile was already persisted as removed, so the card must go away
         // too — but by the time render() runs, there's no per-card status left,
         // hence the page-level message about a dangling permission.
         setPageStatus(
-          revoked
-            ? null
-            : {
-                className: "error",
-                text: revokeError
-                  ? `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения: ${String(revokeError)}`
-                  : `Профиль «${profile.name}» удалён, но не удалось отозвать разрешения`,
-              },
+          revokeError
+            ? { className: "error", text: `Профиль «${profile.name}» удалён, но ${revokeError}` }
+            : null,
         );
         render();
       })
