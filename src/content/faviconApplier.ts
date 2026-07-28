@@ -5,14 +5,14 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void } {
   let current: string | null = null;
   let observer: MutationObserver | null = null;
 
-  const removeOwn = (): void => {
-    document.querySelectorAll(`link[${OWN_ATTR}]`).forEach((link) => link.remove());
+  const removeOwn = (head: HTMLHeadElement): void => {
+    head.querySelectorAll(`link[${OWN_ATTR}]`).forEach((link) => link.remove());
   };
 
   // vmui's icon links were neutralized (rel moved into ORIGINAL_REL_ATTR) rather
   // than deleted; give them their rel back so the tab's own favicon works again.
-  const restoreOriginals = (): void => {
-    document.querySelectorAll<HTMLLinkElement>(`link[${ORIGINAL_REL_ATTR}]`).forEach((link) => {
+  const restoreOriginals = (head: HTMLHeadElement): void => {
+    head.querySelectorAll<HTMLLinkElement>(`link[${ORIGINAL_REL_ATTR}]`).forEach((link) => {
       link.setAttribute("rel", link.getAttribute(ORIGINAL_REL_ATTR) ?? "icon");
       link.removeAttribute(ORIGINAL_REL_ATTR);
     });
@@ -23,8 +23,8 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void } {
     if (!head) return;
 
     if (!current) {
-      removeOwn();
-      restoreOriginals();
+      removeOwn(head);
+      restoreOriginals(head);
       return;
     }
 
@@ -48,33 +48,37 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void } {
     if (own.getAttribute("href") !== current) own.setAttribute("href", current);
   };
 
+  // Re-targets the single observer at whatever is watchable right now: <head>
+  // once it exists, otherwise <html> (present from document_start onward, well
+  // before <head> is inserted) so we still notice the moment <head> shows up.
+  // childList only in both cases: apply() only ever adds/removes elements and
+  // toggles attributes (rel/href); attribute writes never trigger this
+  // observer, and the occasional element it adds/removes causes at most one
+  // extra, self-resolving callback run — never an unbounded loop.
   const observe = (): void => {
-    if (!observer) observer = new MutationObserver(() => apply());
+    if (!observer) observer = new MutationObserver(sync);
     else observer.disconnect();
 
-    // Only childList on head is needed: apply() only ever adds/removes
-    // elements and toggles attributes (rel/href), never triggering itself
-    // via an attribute mutation, so this cannot loop on its own writes.
-    if (document.head) observer.observe(document.head, { childList: true });
+    if (document.head) {
+      observer.observe(document.head, { childList: true });
+    } else if (document.documentElement) {
+      observer.observe(document.documentElement, { childList: true });
+    }
   };
 
-  const start = (): void => {
+  // Runs on every observed mutation: re-target the observer (this is what
+  // promotes it from watching <html> to watching <head> the instant <head>
+  // is inserted) and re-apply the current icon state.
+  const sync = (): void => {
     observe();
-    if (!document.head) {
-      // document_start: <head> doesn't exist yet. Fall back to DOMContentLoaded,
-      // which is guaranteed to fire once <head> is in the document.
-      document.addEventListener("DOMContentLoaded", () => {
-        observe();
-        apply();
-      });
-    }
+    apply();
   };
 
   return {
     set(dataUrl) {
       current = dataUrl;
       apply();
-      start();
+      observe();
     },
   };
 }
