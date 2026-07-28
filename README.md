@@ -12,7 +12,7 @@
 
 ## Требования
 
-- Node 20+, Yarn 4
+- Node 20.19+ (нижняя граница задана `engines` у Vite и ESLint), Yarn 4
 - Chrome 116+ или Firefox 128 ESR+
 
 ## Сборка
