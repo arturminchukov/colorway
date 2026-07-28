@@ -10,8 +10,20 @@ export function createTitleApplier(): { set(prefix: string): void } {
   };
 
   const observe = (): void => {
-    if (!observer) observer = new MutationObserver(() => apply());
-    else observer.disconnect();
+    if (!observer) {
+      observer = new MutationObserver(() => {
+        // Re-subscribe on every mutation, not just react to it: if vmui
+        // replaces the whole <title> element, this callback fires from the
+        // head-level childList observation below, and calling observe()
+        // again re-binds to the *new* title node so later text-only edits
+        // on it keep being caught (apply() alone is idempotent, so this
+        // cannot loop on its own writes).
+        observe();
+        apply();
+      });
+    } else {
+      observer.disconnect();
+    }
 
     const title = document.querySelector("title");
     // vmui rewrites document.title on every route change; the title element
