@@ -53,12 +53,13 @@ function addSiteButton(url: string, settings: Settings): HTMLElement {
   const wrapper = document.createElement("div");
   const button = document.createElement("button");
   button.textContent = "Настроить этот сайт";
-  const status = line("");
-  wrapper.append(button, status);
+  // Named addSiteStatus (not `status`) to avoid shadowing the top-level status() function.
+  const addSiteStatus = line("");
+  wrapper.append(button, addSiteStatus);
 
   button.addEventListener("click", () => {
-    status.textContent = "";
-    status.className = "";
+    addSiteStatus.textContent = "";
+    addSiteStatus.className = "";
 
     const origin = new URL(url).hostname;
     const profile = createProfile(origin.split(".")[0] ?? "vmui");
@@ -71,8 +72,8 @@ function addSiteButton(url: string, settings: Settings): HTMLElement {
       .then(async (granted) => {
         if (!granted) {
           // The user declined the permission prompt — a normal, expected outcome.
-          status.className = "muted";
-          status.textContent = "Доступ не выдан — профиль не создан";
+          addSiteStatus.className = "muted";
+          addSiteStatus.textContent = "Доступ не выдан — профиль не создан";
           return;
         }
         await settingsRepo.save({ ...settings, profiles: [...settings.profiles, profile] });
@@ -81,8 +82,8 @@ function addSiteButton(url: string, settings: Settings): HTMLElement {
       })
       .catch((error: unknown) => {
         // settingsRepo.save() or openOptionsPage() genuinely failed.
-        status.className = "error";
-        status.textContent = `Не удалось создать профиль: ${String(error)}`;
+        addSiteStatus.className = "error";
+        addSiteStatus.textContent = `Не удалось создать профиль: ${String(error)}`;
       });
   });
 
@@ -135,20 +136,35 @@ async function render(): Promise<void> {
 
   toggle.addEventListener("change", () => {
     const nextEnabled = toggle.checked;
-    void settingsRepo
-      .save({
-        ...settings,
-        profiles: settings.profiles.map((item) =>
-          item.id === matched.id ? { ...item, enabled: nextEnabled } : item,
-        ),
-      })
-      .then(() => render())
-      .catch((error: unknown) => {
+    void (async () => {
+      try {
+        await settingsRepo.save({
+          ...settings,
+          profiles: settings.profiles.map((item) =>
+            item.id === matched.id ? { ...item, enabled: nextEnabled } : item,
+          ),
+        });
+      } catch (error) {
         // Save failed: revert the checkbox so it never claims an unsaved state.
+        // toggleStatus is still attached here — render() has not run yet.
         toggle.checked = matched.enabled;
         toggleStatus.className = "error";
         toggleStatus.textContent = `Не удалось сохранить: ${String(error)}`;
-      });
+        return;
+      }
+
+      try {
+        await render();
+      } catch (error) {
+        // The save succeeded, but render() already cleared #app before failing,
+        // so toggleStatus is detached and invisible now — write into #app directly.
+        // The checkbox itself is gone with the rest of the old view, so there is
+        // no stale value left on screen to contradict the (successfully) stored one.
+        app.replaceChildren(
+          line(`Настройка сохранена, но не удалось обновить попап: ${String(error)}`, "error"),
+        );
+      }
+    })();
   });
 
   const label = document.createElement("label");
