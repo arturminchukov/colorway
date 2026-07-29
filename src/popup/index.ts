@@ -53,12 +53,15 @@ function pickElementButton(url: string, tabId: number | undefined, status: HTMLE
   const button = document.createElement("button");
   button.textContent = "Выбрать элемент";
   button.addEventListener("click", () => {
+    status.textContent = "";
+    status.className = "";
+
     if (tabId === undefined) return;
-    const origin = `*://${new URL(url).hostname}/*`;
+    const originPattern = `*://${new URL(url).hostname}/*`;
 
     // permissions.request must be the first await after the user gesture.
     browser.permissions
-      .request({ origins: [origin] })
+      .request({ origins: [originPattern] })
       .then(async (granted) => {
         if (!granted) {
           status.className = "error";
@@ -93,9 +96,9 @@ function addSiteButton(url: string, settings: Settings): HTMLElement {
     addSiteStatus.textContent = "";
     addSiteStatus.className = "";
 
-    const origin = new URL(url).hostname;
-    const profile = createProfile(origin.split(".")[0] ?? "vmui");
-    profile.patterns = [`*://${origin}/*`];
+    const hostname = new URL(url).hostname;
+    const profile = createProfile(hostname.split(".")[0] ?? "vmui");
+    profile.patterns = [`*://${hostname}/*`];
 
     // permissions.request must be the first await after the user gesture,
     // otherwise Firefox rejects it as a non-user action.

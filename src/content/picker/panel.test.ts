@@ -12,7 +12,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const openPanel = (onSave = vi.fn(), onCancel = vi.fn()) => {
+const openPanel = (onSave = vi.fn().mockResolvedValue(undefined), onCancel = vi.fn()) => {
   const panel = createPanel({ onSave, onCancel });
   live = panel;
   document.body.innerHTML = `<header class="vm-header">x</header>`;
@@ -122,5 +122,73 @@ describe("createPanel", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(document.getElementById("color-vmui-preview")).toBeNull();
     expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`)).toHaveLength(0);
+  });
+
+  it("closes only once onSave's promise resolves", async () => {
+    let resolveSave: () => void = () => {};
+    const onSave = vi.fn(() => new Promise<void>((resolve) => (resolveSave = resolve)));
+    const { root } = openPanel(onSave);
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    root.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
+
+    // Still open: the save hasn't settled yet.
+    expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`).length).toBeGreaterThan(0);
+
+    resolveSave();
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`)).toHaveLength(0);
+    });
+  });
+
+  it("keeps the panel open with the input intact and shows the failure when onSave rejects", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("quota exceeded"));
+    const { root } = openPanel(onSave);
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    root.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-role=error]")?.textContent).toContain("quota exceeded");
+    });
+
+    expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`).length).toBeGreaterThan(0);
+    expect(root.querySelector<HTMLInputElement>("[data-role=selector]")!.value).toBe(".vm-header");
+    expect(root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked).toBe(true);
+    expect(root.querySelector<HTMLInputElement>("[data-role=background]")!.value).toBe("#c62828");
+  });
+
+  it("does not fire a second save while one is already in flight", () => {
+    let resolveSave: () => void = () => {};
+    const onSave = vi.fn(() => new Promise<void>((resolve) => (resolveSave = resolve)));
+    const { root } = openPanel(onSave);
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    const saveButton = root.querySelector<HTMLButtonElement>("[data-role=save]")!;
+
+    saveButton.click();
+    saveButton.click();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    resolveSave();
+  });
+
+  it("allows a retry after a rejected save re-enables the save button", async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new Error("quota exceeded")).mockResolvedValueOnce(undefined);
+    const { root } = openPanel(onSave);
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    const saveButton = root.querySelector<HTMLButtonElement>("[data-role=save]")!;
+
+    saveButton.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-role=error]")?.textContent).toContain("quota exceeded");
+    });
+
+    saveButton.click();
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`)).toHaveLength(0);
+    });
+    expect(onSave).toHaveBeenCalledTimes(2);
   });
 });

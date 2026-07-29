@@ -20,8 +20,12 @@ function start(): void {
 
   const highlight = createHighlight();
   const panel = createPanel({
-    onSave: (rule) => {
-      void settingsRepo.load().then((settings) => settingsRepo.save(addRuleForUrl(settings, location.href, rule)));
+    onSave: async (rule) => {
+      // Awaited (not fire-and-forget) so a storage failure — quota, for instance —
+      // reaches the panel and keeps the picker mode alive instead of silently
+      // dropping the rule. stop() only runs once the write has actually succeeded.
+      const settings = await settingsRepo.load();
+      await settingsRepo.save(addRuleForUrl(settings, location.href, rule));
       stop();
     },
     onCancel: () => {

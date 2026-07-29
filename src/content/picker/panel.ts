@@ -80,7 +80,7 @@ function setPreview(css: string | null): void {
  * does overlap the element being edited, because no placement can avoid it.
  */
 export function createPanel(options: {
-  onSave(rule: ColorRule): void;
+  onSave(rule: ColorRule): Promise<void>;
   onCancel(): void;
 }): { open(element: Element, selector: string): void; close(): void } {
   let host: HTMLElement | null = null;
@@ -164,7 +164,14 @@ export function createPanel(options: {
       panel.addEventListener("change", sync);
       sync();
 
-      find<HTMLButtonElement>("save").addEventListener("click", () => {
+      const saveButton = find<HTMLButtonElement>("save");
+      // Guards against a second write firing while the first save is still in flight
+      // (e.g. a slow storage write plus an impatient double-click).
+      let saving = false;
+
+      saveButton.addEventListener("click", () => {
+        if (saving) return;
+
         const rule = readRule();
         if (!isSafeSelector(rule.selector)) {
           errorLabel.textContent = "селектор недопустим";
@@ -178,8 +185,20 @@ export function createPanel(options: {
           errorLabel.textContent = "выбери хотя бы один цвет";
           return;
         }
-        options.onSave(rule);
-        close();
+
+        saving = true;
+        saveButton.disabled = true;
+        errorLabel.textContent = "";
+        options.onSave(rule).then(
+          () => close(),
+          (error: unknown) => {
+            // The rule stays on screen exactly as the user left it, so a retry
+            // doesn't require re-entering anything.
+            saving = false;
+            saveButton.disabled = false;
+            errorLabel.textContent = `не удалось сохранить: ${String(error)}`;
+          },
+        );
       });
 
       find<HTMLButtonElement>("cancel").addEventListener("click", () => {
