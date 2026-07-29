@@ -15,10 +15,27 @@ declare global {
 }
 
 export type StatusRequest = { type: "color-vmui:status" };
-export type StatusResponse = { profileName: string | null };
+export type RuleMatch = { ruleId: string; count: number };
+export type StatusResponse = { profileName: string | null; matches: RuleMatch[] };
 
 const favicon = createFaviconApplier();
 const title = createTitleApplier();
+
+/**
+ * How many elements each rule currently hits. A zero means the site changed under a
+ * selector that used to work, which is the one failure the user cannot see directly.
+ */
+function countMatches(profile: Profile | null): RuleMatch[] {
+  if (!profile) return [];
+  return profile.rules.map((rule) => {
+    try {
+      return { ruleId: rule.id, count: document.querySelectorAll(rule.selector).length };
+    } catch {
+      // Invalid selector: the browser's parser rejected it.
+      return { ruleId: rule.id, count: 0 };
+    }
+  });
+}
 
 let activeProfile: Profile | null = null;
 
@@ -56,7 +73,10 @@ function main(): void {
   // shapes with differing arity, so TS cannot infer `message` from context here.
   browser.runtime.onMessage.addListener((message: unknown): Promise<StatusResponse> | undefined => {
     if ((message as StatusRequest)?.type !== "color-vmui:status") return undefined;
-    return Promise.resolve({ profileName: activeProfile?.name ?? null });
+    return Promise.resolve({
+      profileName: activeProfile?.name ?? null,
+      matches: countMatches(activeProfile),
+    });
   });
 
   void refresh();

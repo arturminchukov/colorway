@@ -123,7 +123,18 @@ async function render(): Promise<void> {
       line("Скрипт не работает на этой вкладке — не выданы права или нужна перезагрузка", "error"),
     );
   } else {
-    app.append(line("Применён", "muted"));
+    const empty = reported.matches.filter((match) => match.count === 0);
+    if (empty.length === 0) {
+      app.append(line("Применён", "muted"));
+    } else {
+      app.append(
+        line(
+          `Применён, но ${empty.length} из ${reported.matches.length} правил ничего не находят — ` +
+            "селекторы устарели, поправь их в настройках",
+          "error",
+        ),
+      );
+    }
   }
 
   const toggle = document.createElement("input");
