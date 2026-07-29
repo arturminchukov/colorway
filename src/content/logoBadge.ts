@@ -33,7 +33,17 @@ export function createLogoBadge(): {
       logo.insertAdjacentElement("afterend", badge);
     }
 
-    badge.textContent = caption;
+    // Guarded, unlike the style write below: assigning textContent replaces the
+    // element's child nodes even when the string is unchanged, which is a childList
+    // mutation inside this applier's own {childList, subtree} scope. Writing it
+    // unconditionally notifies the observer that scheduled this call, which applies
+    // again, which writes again — an unbounded microtask chain that never yields to
+    // the event loop, so the page stops loading entirely.
+    if (badge.textContent !== caption) badge.textContent = caption;
+
+    // Safe to write unconditionally: the observer takes childList only, so attribute
+    // changes never notify it. Reading cssText back gives the browser's normalized
+    // form, so comparing before writing would not match anyway.
     badge.style.cssText = [
       `color: ${color}`,
       "font: 700 14px/1 system-ui, sans-serif",
