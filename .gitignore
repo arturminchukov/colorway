@@ -4,3 +4,4 @@ dist/
 !.yarn/patches
 !.yarn/releases
 .DS_Store
+.superpowers/
