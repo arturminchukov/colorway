@@ -56,4 +56,31 @@ describe("addRuleForUrl", () => {
     const settings: Settings = { version: 2, profiles: [] };
     expect(addRuleForUrl(settings, "not a url", rule)).toEqual(settings);
   });
+
+  it("appends to a wildcard profile that matches via pickProfile even though the pattern text is not a substring of the host", () => {
+    const existing = {
+      ...createProfile("example.com"),
+      id: "p1",
+      patterns: ["*://*.example.com/*"],
+    };
+    const settings: Settings = { version: 2, profiles: [existing] };
+    const next = addRuleForUrl(settings, "https://app.example.com/", rule);
+    expect(next.profiles).toHaveLength(1);
+    expect(next.profiles[0].id).toBe("p1");
+    expect(next.profiles[0].rules).toEqual([rule]);
+  });
+
+  it("does not append to a profile whose pattern merely contains the host as a substring", () => {
+    const existing = {
+      ...createProfile("xvm.corporate.com"),
+      id: "p1",
+      patterns: ["*://xvm.corporate.com/*"],
+    };
+    const settings: Settings = { version: 2, profiles: [existing] };
+    const next = addRuleForUrl(settings, "https://vm.corp/", rule);
+    expect(next.profiles).toHaveLength(2);
+    expect(next.profiles[0].rules).toEqual([]);
+    expect(next.profiles[1].name).toBe("vm.corp");
+    expect(next.profiles[1].rules).toEqual([rule]);
+  });
 });

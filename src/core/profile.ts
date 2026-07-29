@@ -1,3 +1,5 @@
+import { pickProfile } from "./matcher";
+
 export type ColorRule = {
   id: string;
   /** CSS selector, either picked on the page or edited by hand. */
@@ -66,9 +68,8 @@ export function addRuleForUrl(settings: Settings, url: string, rule: ColorRule):
   const host = hostOf(url);
   if (!host) return settings;
 
-  const target = settings.profiles.find(
-    (profile) => profile.enabled && profile.patterns.some((pattern) => pattern.includes(host)),
-  );
+  // Reuse pickProfile so "the profile that applies" matches exactly what paints the page.
+  const target = pickProfile(url, settings.profiles);
 
   if (target) {
     return {
