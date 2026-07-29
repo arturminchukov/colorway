@@ -158,7 +158,7 @@ describe("createPanel", () => {
     expect(root.querySelector<HTMLInputElement>("[data-role=background]")!.value).toBe("#c62828");
   });
 
-  it("does not fire a second save while one is already in flight", () => {
+  it("does not fire a second save while one is already in flight", async () => {
     let resolveSave: () => void = () => {};
     const onSave = vi.fn(() => new Promise<void>((resolve) => (resolveSave = resolve)));
     const { root } = openPanel(onSave);
@@ -170,7 +170,14 @@ describe("createPanel", () => {
     saveButton.click();
 
     expect(onSave).toHaveBeenCalledTimes(1);
+
+    // Let the panel's own `.then(() => close())` actually run before the test ends,
+    // instead of relying on `afterEach`'s `live?.close()` racing it and passing only
+    // because close() happens to be idempotent.
     resolveSave();
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(`[${PICKER_UI_ATTR}]`)).toHaveLength(0);
+    });
   });
 
   it("allows a retry after a rejected save re-enables the save button", async () => {
