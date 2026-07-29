@@ -25,8 +25,17 @@ function matchCount(selector: string): number {
  * catch ui nodes, the exclusion is folded into the string itself.
  */
 function finalize(selector: string): string {
-  if (document.querySelectorAll(selector).length === 1) return selector;
+  if (matchesExactlyOne(selector)) return selector;
   return `${selector}:not([${PICKER_UI_ATTR}])`;
+}
+
+/** Same as matchCount === 1, but without the picker-ui exclusion finalize itself is deciding whether to add. */
+function matchesExactlyOne(selector: string): boolean {
+  try {
+    return document.querySelectorAll(selector).length === 1;
+  } catch {
+    return false;
+  }
 }
 
 function idPart(element: Element): string | null {
@@ -38,7 +47,9 @@ function attrPart(element: Element): string | null {
   for (const attr of SEMANTIC_ATTRS) {
     const value = element.getAttribute(attr);
     if (value && value.length <= MAX_ATTR_VALUE) {
-      return `${element.tagName.toLowerCase()}[${attr}="${value.replace(/["\\]/g, "\\$&")}"]`;
+      // CSS.escape handles control characters (e.g. a raw newline) that hand-rolled
+      // quote escaping cannot; its output is safe to embed inside a quoted value too.
+      return `${element.tagName.toLowerCase()}[${attr}="${CSS.escape(value)}"]`;
     }
   }
   return null;

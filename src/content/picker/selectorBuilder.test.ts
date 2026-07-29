@@ -47,4 +47,16 @@ describe("buildSelector", () => {
     const selector = buildSelector(document.querySelectorAll(".panel")[1]!);
     expect(document.querySelectorAll(selector)).toHaveLength(1);
   });
+
+  it("escapes an attribute value containing a newline into a parseable selector", () => {
+    document.body.innerHTML = `<button aria-label="a\nb">ok</button>`;
+    const selector = buildSelector(document.querySelector("button")!);
+    expect(() => document.querySelectorAll(selector)).not.toThrow();
+    expect(document.querySelectorAll(selector)).toHaveLength(1);
+  });
+
+  it("does not throw when building a selector for an element with a newline in aria-label", () => {
+    document.body.innerHTML = `<button aria-label="a\nb">ok</button>`;
+    expect(() => buildSelector(document.querySelector("button")!)).not.toThrow();
+  });
 });
