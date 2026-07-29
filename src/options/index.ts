@@ -143,9 +143,16 @@ function renderCard(profile: Profile): HTMLElement {
   const card = document.createElement("section");
   card.className = "card";
 
+  // Bumped on every markDirty() call, so a save-in-flight can tell whether the card
+  // picked up further edits after its `next` snapshot was taken (see the click handler).
+  let dirtyVersion = 0;
+
   // Both events bubble, so one pair of listeners covers every control in the card:
   // "input" for the text fields, textarea and color pickers, "change" for the checkbox.
-  const markDirty = (): void => void dirtyProfileIds.add(profile.id);
+  const markDirty = (): void => {
+    dirtyProfileIds.add(profile.id);
+    dirtyVersion += 1;
+  };
   card.addEventListener("input", markDirty);
   card.addEventListener("change", markDirty);
 
@@ -249,6 +256,11 @@ function renderCard(profile: Profile): HTMLElement {
       return;
     }
 
+    // Snapshotted next to `next`, synchronously, before any await: if dirtyVersion has
+    // moved by the time the write resolves, the user edited the card again while the
+    // permission prompt / storage write were in flight, and `next` is stale.
+    const dirtyVersionAtSave = dirtyVersion;
+
     // permissions.request must be the first await after the user gesture,
     // otherwise Firefox rejects it as a non-user action.
     browser.permissions
@@ -275,27 +287,44 @@ function renderCard(profile: Profile): HTMLElement {
         await settingsRepo.save(nextSettings);
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
-        dirtyProfileIds.delete(next.id);
 
-        // The write drops rules with an empty selector (see `next.rules` above); the
-        // card's own list must not go on showing one of those as if it had been saved.
-        rules = next.rules.map((rule) => ({ ...rule }));
-        renderRules();
+        // If the user kept editing this card while the permission prompt / write were
+        // pending, `next` no longer reflects what's on screen. Clearing the dirty flag
+        // or overwriting `rules` here would silently discard that newer input, so both
+        // are skipped — the card stays dirty and protected until the next save.
+        const editedDuringSave = dirtyVersion !== dirtyVersionAtSave;
+        if (!editedDuringSave) {
+          dirtyProfileIds.delete(next.id);
+
+          // The write drops rules with an empty selector (see `next.rules` above); the
+          // card's own list must not go on showing one of those as if it had been saved.
+          rules = next.rules.map((rule) => ({ ...rule }));
+          renderRules();
+        }
 
         // Patterns this edit orphaned: held by the profile before the edit and by
         // nothing in the settings just stored. Revoked only after a successful save,
-        // so a failed write never gives away access the profile still needs.
+        // so a failed write never gives away access the profile still needs, regardless
+        // of whether the card picked up further edits since.
         const revokeError = await revokeOrphaned(patternsToRevoke(previous, nextSettings.profiles));
 
         const savedText = granted
           ? "Сохранено"
           : "Сохранено, но доступ к этим адресам не выдан — профиль не применится";
-        status.className = granted && !revokeError ? "muted" : "error";
-        status.textContent = revokeError ? `${savedText}; ${revokeError}` : savedText;
+        let text = revokeError ? `${savedText}; ${revokeError}` : savedText;
+        if (editedDuringSave) {
+          text +=
+            " Карточка была изменена во время сохранения — эти новые правки ещё не сохранены, " +
+            "нажмите «Сохранить» ещё раз.";
+        }
+        status.className = granted && !revokeError && !editedDuringSave ? "muted" : "error";
+        status.textContent = text;
 
         // A redraw deferred because this card was dirty can happen now — but only
         // when there is nothing left to read in the card, since render() rebuilds it
-        // together with its status line.
+        // together with its status line. If this card just picked up new edits, it's
+        // still in dirtyProfileIds (see editedDuringSave above), so the check below
+        // naturally keeps waiting for the next save instead of firing here.
         if (granted && !revokeError && pendingExternalUpdate && dirtyProfileIds.size === 0) {
           setPageStatus({
             className: "muted",
