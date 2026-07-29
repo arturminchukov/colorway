@@ -12,6 +12,7 @@ const entries = {
   background: "src/background/index.ts",
   options: "src/options/index.ts",
   popup: "src/popup/index.ts",
+  picker: "src/content/picker/index.ts",
 };
 
 async function buildTarget(target) {

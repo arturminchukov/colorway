@@ -49,6 +49,38 @@ function openOptionsButton(): HTMLButtonElement {
   return button;
 }
 
+function pickElementButton(url: string, tabId: number | undefined, status: HTMLElement): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.textContent = "Выбрать элемент";
+  button.addEventListener("click", () => {
+    if (tabId === undefined) return;
+    const origin = `*://${new URL(url).hostname}/*`;
+
+    // permissions.request must be the first await after the user gesture.
+    browser.permissions
+      .request({ origins: [origin] })
+      .then(async (granted) => {
+        if (!granted) {
+          status.className = "error";
+          status.textContent = "Без доступа к сайту пипетка не запустится";
+          return;
+        }
+        const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
+        if (started === false) {
+          status.className = "error";
+          status.textContent = "Не удалось запустить пипетку на этой вкладке";
+          return;
+        }
+        window.close();
+      })
+      .catch((error: unknown) => {
+        status.className = "error";
+        status.textContent = `Ошибка: ${String(error)}`;
+      });
+  });
+  return button;
+}
+
 function addSiteButton(url: string, settings: Settings): HTMLElement {
   const wrapper = document.createElement("div");
   const button = document.createElement("button");
@@ -104,6 +136,9 @@ async function render(): Promise<void> {
     app.append(line("Вкладка не поддерживается", "muted"), openOptionsButton());
     return;
   }
+
+  const pickStatus = line("", "muted");
+  app.append(pickElementButton(tab.url, tab.id, pickStatus), pickStatus);
 
   const matched = matchingProfile(tab.url, settings.profiles);
   const reported = await status(tab.id);

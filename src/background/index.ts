@@ -57,6 +57,23 @@ async function syncRegistration(): Promise<void> {
   await injectIntoOpenTabs(wanted);
 }
 
+type StartPickerRequest = { type: "color-vmui:start-picker"; tabId: number };
+
+/**
+ * The picker is a separate bundle injected on demand, so the always-on content
+ * script stays small. Injection needs scripting permission for the tab, which the
+ * popup has just obtained from the user.
+ */
+browser.runtime.onMessage.addListener((message: unknown): Promise<boolean> | undefined => {
+  const request = message as StartPickerRequest;
+  if (request?.type !== "color-vmui:start-picker") return undefined;
+
+  return browser.scripting
+    .executeScript({ target: { tabId: request.tabId }, files: ["picker.js"] })
+    .then(() => true)
+    .catch(() => false);
+});
+
 browser.runtime.onInstalled.addListener(() => void syncRegistration());
 browser.runtime.onStartup.addListener(() => void syncRegistration());
 browser.storage.onChanged.addListener((changes, area) => {
