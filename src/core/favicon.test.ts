@@ -44,4 +44,19 @@ describe("buildFaviconDataUrl", () => {
   it("returns null when there are no letters", () => {
     expect(buildFaviconDataUrl("   ", "#c62828")).toBeNull();
   });
+
+  it("drops a lone leading surrogate instead of throwing", () => {
+    expect(() => buildFaviconDataUrl("A\ud83dB", "#c62828")).not.toThrow();
+    expect(decodeURIComponent(buildFaviconDataUrl("A\ud83dB", "#c62828") ?? "")).toContain(">AB<");
+  });
+
+  it("drops a lone trailing surrogate instead of throwing", () => {
+    expect(() => buildFaviconDataUrl("A\udc00", "#c62828")).not.toThrow();
+    expect(decodeURIComponent(buildFaviconDataUrl("A\udc00", "#c62828") ?? "")).toContain(">A<");
+  });
+
+  it("returns null for a value that is nothing but an unpaired surrogate", () => {
+    expect(() => buildFaviconDataUrl("\ud83d", "#c62828")).not.toThrow();
+    expect(buildFaviconDataUrl("\ud83d", "#c62828")).toBeNull();
+  });
 });

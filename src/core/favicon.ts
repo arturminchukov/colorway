@@ -8,6 +8,14 @@ function escapeXml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// A code point yielded by the string iterator that is still a single UTF-16 unit in
+// the surrogate range never paired up with its other half, so it is not renderable.
+function isUnpairedSurrogate(codePoint: string): boolean {
+  if (codePoint.length !== 1) return false;
+  const unit = codePoint.charCodeAt(0);
+  return unit >= 0xd800 && unit <= 0xdfff;
+}
+
 /**
  * SVG rather than canvas: this stays a pure string function, testable without a DOM.
  * Returns null when the icon cannot be rendered meaningfully.
@@ -17,9 +25,14 @@ export function buildFaviconDataUrl(letters: string, background: string): string
 
   // Slice by code points, not UTF-16 units: String.slice() would cut a surrogate
   // pair in half ("A🔥" -> "A\ud83d") and encodeURIComponent() throws URIError on
-  // the lone surrogate. Whitespace carries nothing on a 64px icon, so it is
+  // the lone surrogate. Input can also carry an unpaired surrogate on its own (e.g.
+  // a truncated clipboard paste), which the iterator yields as its own one-unit code
+  // point — those are dropped for the same reason rather than passed through to
+  // encodeURIComponent(). Whitespace carries nothing on a 64px icon, so it is
   // dropped outright instead of surviving into the rendered text.
-  const glyphs = Array.from(letters.replace(/\s+/g, "")).slice(0, 2);
+  const glyphs = Array.from(letters.replace(/\s+/g, ""))
+    .filter((codePoint) => !isUnpairedSurrogate(codePoint))
+    .slice(0, 2);
   if (glyphs.length === 0) return null;
   const text = glyphs.join("").toUpperCase();
 
