@@ -197,6 +197,9 @@ function renderCard(profile: Profile): HTMLElement {
           () => {
             rules = rules.filter((item) => item.id !== rule.id);
             renderRules();
+            // Deleting a rule is a click, not an "input"/"change" bubble, so the
+            // card's dirty tracking (see markDirty above) needs an explicit nudge.
+            markDirty();
           },
         ),
       );
@@ -207,6 +210,8 @@ function renderCard(profile: Profile): HTMLElement {
     addRule.addEventListener("click", () => {
       rules = [...rules, createRule("")];
       renderRules();
+      // Same as the delete button: a click never bubbles as "input"/"change".
+      markDirty();
     });
     rulesBox.append(addRule);
   };
@@ -271,6 +276,11 @@ function renderCard(profile: Profile): HTMLElement {
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
         dirtyProfileIds.delete(next.id);
+
+        // The write drops rules with an empty selector (see `next.rules` above); the
+        // card's own list must not go on showing one of those as if it had been saved.
+        rules = next.rules.map((rule) => ({ ...rule }));
+        renderRules();
 
         // Patterns this edit orphaned: held by the profile before the edit and by
         // nothing in the settings just stored. Revoked only after a successful save,
