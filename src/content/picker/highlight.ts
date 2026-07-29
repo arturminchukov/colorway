@@ -11,6 +11,8 @@ const BOX_STYLE = [
 
 const LABEL_STYLE = [
   "position: absolute",
+  "z-index: 2147483646",
+  "pointer-events: none",
   "left: 0",
   "top: 100%",
   "padding: 1px 6px",
@@ -20,9 +22,22 @@ const LABEL_STYLE = [
   "white-space: nowrap",
 ].join(";");
 
+// Properties this module's pass-through guarantee depends on, forced to survive
+// a hostile page stylesheet (e.g. `* { all: revert }` or a `!important` reset).
+const HARDENED_PROPERTIES = ["pointer-events", "position", "z-index"];
+
+function hardenStyle(element: HTMLElement): void {
+  for (const property of HARDENED_PROPERTIES) {
+    const value = element.style.getPropertyValue(property);
+    if (value) element.style.setProperty(property, value, "important");
+  }
+}
+
 /**
- * Devtools-style outline under the cursor. pointer-events stay off so the overlay
- * never swallows the click that selects the element beneath it.
+ * Devtools-style outline under the cursor. pointer-events, position and z-index are
+ * set with !important so no page stylesheet can re-enable pointer capture on the
+ * overlay or the elements it inserts, and every inserted node carries PICKER_UI_ATTR
+ * so selectorBuilder's exclusion check (element-only, not ancestor-aware) still holds.
  */
 export function createHighlight(): {
   show(element: Element): void;
@@ -32,13 +47,19 @@ export function createHighlight(): {
   const box = document.createElement("div");
   box.setAttribute(PICKER_UI_ATTR, "");
   box.style.cssText = `${BOX_STYLE};display:none`;
+  hardenStyle(box);
 
   const label = document.createElement("span");
+  label.setAttribute(PICKER_UI_ATTR, "");
   label.style.cssText = LABEL_STYLE;
+  hardenStyle(label);
   box.append(label);
+
+  let destroyed = false;
 
   return {
     show(element) {
+      if (destroyed) return;
       if (!box.isConnected) document.body.append(box);
 
       const rect = element.getBoundingClientRect();
@@ -53,6 +74,7 @@ export function createHighlight(): {
       box.style.display = "none";
     },
     destroy() {
+      destroyed = true;
       box.remove();
     },
   };
