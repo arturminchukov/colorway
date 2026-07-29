@@ -1,5 +1,5 @@
 import { patternsToRevoke } from "../core/permissions";
-import { createProfile, type Profile, type Settings } from "../core/profile";
+import { createProfile, createRule, type ColorRule, type Profile, type Settings } from "../core/profile";
 import { isValidColor } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
@@ -85,6 +85,60 @@ function readPatterns(area: HTMLTextAreaElement): string[] {
     .filter(Boolean);
 }
 
+/**
+ * A rule's color is optional: the checkbox tells "leave this property alone" apart
+ * from "paint it", because <input type="color"> has no empty state of its own.
+ */
+function renderRule(
+  rule: ColorRule,
+  onChange: (next: ColorRule) => void,
+  onDelete: () => void,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "card";
+
+  const selector = textInput(rule.selector);
+  selector.placeholder = ".vm-header";
+  row.append(labelled("Селектор", selector));
+
+  const colorControls = document.createElement("div");
+  colorControls.className = "row";
+
+  const build = (label: string, value: string | null): { wrap: HTMLElement; read: () => string | null } => {
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.checked = value !== null;
+
+    const color = colorInput(value ?? "#3f51b5");
+    color.disabled = value === null;
+    enabled.addEventListener("change", () => {
+      color.disabled = !enabled.checked;
+    });
+
+    const wrap = document.createElement("label");
+    wrap.append(label, enabled, color);
+    return { wrap, read: () => (enabled.checked ? color.value : null) };
+  };
+
+  const background = build("Фон", rule.background);
+  const text = build("Текст", rule.text);
+  colorControls.append(background.wrap, text.wrap);
+  row.append(colorControls);
+
+  const remove = document.createElement("button");
+  remove.textContent = "Удалить правило";
+  remove.addEventListener("click", onDelete);
+  row.append(remove);
+
+  const collect = (): void => {
+    onChange({ ...rule, selector: selector.value.trim(), background: background.read(), text: text.read() });
+  };
+  row.addEventListener("change", collect);
+  row.addEventListener("input", collect);
+
+  return row;
+}
+
 function renderCard(profile: Profile): HTMLElement {
   const card = document.createElement("section");
   card.className = "card";
@@ -121,6 +175,44 @@ function renderCard(profile: Profile): HTMLElement {
   patterns.placeholder = "*://vm-prod.corp/*";
   card.append(labelled("URL-паттерны, по одному в строке", patterns));
 
+  // Rules are edited against a local copy and written by the card's own «Сохранить»,
+  // so a half-edited rule never reaches storage.
+  let rules = profile.rules.map((rule) => ({ ...rule }));
+
+  const rulesBox = document.createElement("div");
+  const renderRules = (): void => {
+    rulesBox.replaceChildren();
+    const heading = document.createElement("p");
+    heading.className = "label";
+    heading.textContent = rules.length ? "Правила" : "Правил пока нет";
+    rulesBox.append(heading);
+
+    rules.forEach((rule, index) => {
+      rulesBox.append(
+        renderRule(
+          rule,
+          (next) => {
+            rules[index] = next;
+          },
+          () => {
+            rules = rules.filter((item) => item.id !== rule.id);
+            renderRules();
+          },
+        ),
+      );
+    });
+
+    const addRule = document.createElement("button");
+    addRule.textContent = "Добавить правило";
+    addRule.addEventListener("click", () => {
+      rules = [...rules, createRule("")];
+      renderRules();
+    });
+    rulesBox.append(addRule);
+  };
+  renderRules();
+  card.append(rulesBox);
+
   const status = document.createElement("p");
   status.className = "muted";
 
@@ -136,7 +228,12 @@ function renderCard(profile: Profile): HTMLElement {
   card.append(buttons, status);
 
   save.addEventListener("click", () => {
-    const next: Profile = { ...profile, enabled: enabled.checked, patterns: readPatterns(patterns) };
+    const next: Profile = {
+      ...profile,
+      enabled: enabled.checked,
+      patterns: readPatterns(patterns),
+      rules: rules.filter((rule) => rule.selector.length > 0),
+    };
     for (const [key, input] of inputs) {
       (next as unknown as Record<string, string>)[key] = input.value;
     }
