@@ -7,12 +7,10 @@ const profile = (id: string, patterns: string[], enabled = true): Profile => ({
   name: id,
   enabled,
   patterns,
-  accent: "#3f51b5",
-  headerBackground: "#3f51b5",
-  logoColor: "#ffffff",
-  logoCaption: "",
   titlePrefix: "",
   faviconLetters: "VM",
+  faviconBackground: "#3f51b5",
+  rules: [],
 });
 
 describe("activePatterns", () => {

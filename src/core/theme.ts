@@ -1,4 +1,5 @@
-import type { Profile } from "./profile";
+import type { ColorRule, Profile } from "./profile";
+import { isSafeSelector } from "./selector";
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -37,20 +38,26 @@ export function contrastText(background: string): string {
 }
 
 /**
- * vmui sets the palette on documentElement and the header colors inline,
- * so every override here must be !important to win the cascade.
+ * One CSS block per rule. Sites set colors inline, so every declaration needs
+ * !important to win the cascade. A rule is dropped whole — never half-applied —
+ * when its selector could escape the block or any color it sets is invalid.
  */
-export function buildCss(profile: Profile): string | null {
-  const { accent, headerBackground, logoColor } = profile;
-  if (![accent, headerBackground, logoColor].every(isValidColor)) return null;
+function ruleToCss(rule: ColorRule): string | null {
+  if (!isSafeSelector(rule.selector)) return null;
 
-  const fg = contrastText(headerBackground);
-  return [
-    `:root { --color-primary: ${accent} !important; }`,
-    `.vm-header { background: ${headerBackground} !important; color: ${fg} !important; }`,
-    `.vm-header-logo, .vm-header-logo svg { color: ${logoColor} !important; }`,
-    `.vm-header-nav-item { color: ${fg} !important; }`,
-    `.vm-header-nav-item-submenu { background: ${headerBackground} !important; }`,
-    `.vm-header-sidebar-menu { color: ${fg} !important; background: ${headerBackground} !important; }`,
-  ].join("\n");
+  const colors = [rule.background, rule.text].filter((color): color is string => color !== null);
+  if (colors.length === 0 || !colors.every(isValidColor)) return null;
+
+  const declarations: string[] = [];
+  if (rule.background !== null) declarations.push(`background: ${rule.background} !important`);
+  if (rule.text !== null) declarations.push(`color: ${rule.text} !important`);
+
+  return `${rule.selector.trim()} { ${declarations.join("; ")}; }`;
+}
+
+export function buildCss(profile: Profile): string | null {
+  const blocks = profile.rules
+    .map(ruleToCss)
+    .filter((block): block is string => block !== null);
+  return blocks.length > 0 ? blocks.join("\n") : null;
 }

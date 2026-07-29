@@ -9,17 +9,14 @@ const app = document.getElementById("app")!;
 const TEXT_FIELDS: Array<{ key: keyof Profile; label: string }> = [
   { key: "name", label: "Имя профиля" },
   { key: "titlePrefix", label: "Префикс заголовка вкладки" },
-  { key: "logoCaption", label: "Подпись справа от логотипа" },
   { key: "faviconLetters", label: "Буквы на favicon (1–2)" },
 ];
 
 const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
-  { key: "accent", label: "Акцент" },
-  { key: "headerBackground", label: "Фон шапки" },
-  { key: "logoColor", label: "Цвет логотипа и подписи" },
+  { key: "faviconBackground", label: "Фон favicon" },
 ];
 
-let settings: Settings = { version: 1, profiles: [] };
+let settings: Settings = { version: 2, profiles: [] };
 
 // Cards the user has typed into since the last render(). The storage listener below
 // refuses to rebuild such a card — that would throw away the input the user is still

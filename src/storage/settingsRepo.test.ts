@@ -14,6 +14,17 @@ function fakeArea(initial: Record<string, unknown> = {}): StorageArea {
   };
 }
 
+const profile = {
+  id: "a",
+  name: "PROD",
+  enabled: true,
+  patterns: ["*://vm.corp/*"],
+  titlePrefix: "[PROD] ",
+  faviconLetters: "PR",
+  faviconBackground: "#c62828",
+  rules: [{ id: "r1", selector: ".vm-header", background: "#c62828", text: null }],
+};
+
 describe("createSettingsRepo", () => {
   it("returns defaults on empty storage", async () => {
     const repo = createSettingsRepo(fakeArea());
@@ -23,28 +34,15 @@ describe("createSettingsRepo", () => {
   it("round-trips settings", async () => {
     const repo = createSettingsRepo(fakeArea());
     const settings = {
-      version: 1 as const,
-      profiles: [
-        {
-          id: "a",
-          name: "PROD",
-          enabled: true,
-          patterns: ["*://vm.corp/*"],
-          accent: "#c62828",
-          headerBackground: "#c62828",
-          logoColor: "#ffffff",
-          logoCaption: "PROD",
-          titlePrefix: "[PROD] ",
-          faviconLetters: "PR",
-        },
-      ],
+      version: 2 as const,
+      profiles: [profile],
     };
     await repo.save(settings);
     expect(await repo.load()).toEqual(settings);
   });
 
   it("falls back to defaults when stored data has the wrong shape", async () => {
-    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 1, profiles: "nope" } }));
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: "nope" } }));
     expect(await repo.load()).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -66,12 +64,10 @@ describe("createSettingsRepo", () => {
       name: "poison",
       enabled: true,
       patterns: [],
-      accent: "#000000",
-      headerBackground: "#000000",
-      logoColor: "#000000",
-      logoCaption: "poison",
       titlePrefix: "",
       faviconLetters: "PO",
+      faviconBackground: "#000000",
+      rules: [],
     });
 
     expect(second.profiles).toEqual([]);
@@ -79,35 +75,30 @@ describe("createSettingsRepo", () => {
   });
 
   it("drops malformed profiles but keeps the valid ones", async () => {
-    const validProfile = {
-      id: "a",
-      name: "PROD",
-      enabled: true,
-      patterns: ["*://vm.corp/*"],
-      accent: "#c62828",
-      headerBackground: "#c62828",
-      logoColor: "#ffffff",
-      logoCaption: "PROD",
-      titlePrefix: "[PROD] ",
-      faviconLetters: "PR",
-    };
+    const validProfile = profile;
     const repo = createSettingsRepo(
       fakeArea({
         [SETTINGS_KEY]: {
-          version: 1,
+          version: 2,
           profiles: [validProfile, 123, {}, { ...validProfile, patterns: "not-an-array" }],
         },
       }),
     );
 
-    expect(await repo.load()).toEqual({ version: 1, profiles: [validProfile] });
+    expect(await repo.load()).toEqual({ version: 2, profiles: [validProfile] });
   });
 
   it("falls back to empty profiles when every stored profile is malformed", async () => {
     const repo = createSettingsRepo(
-      fakeArea({ [SETTINGS_KEY]: { version: 1, profiles: [123, {}, "nope"] } }),
+      fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: [123, {}, "nope"] } }),
     );
 
-    expect(await repo.load()).toEqual({ version: 1, profiles: [] });
+    expect(await repo.load()).toEqual({ version: 2, profiles: [] });
+  });
+
+  it("drops a profile whose rules are malformed", async () => {
+    const broken = { ...profile, rules: [{ id: "r1", selector: 42, background: null, text: null }] };
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: [broken] } }));
+    expect((await repo.load()).profiles).toEqual([]);
   });
 });

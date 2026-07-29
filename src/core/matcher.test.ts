@@ -7,12 +7,10 @@ const profile = (over: Partial<Profile>): Profile => ({
   name: "P",
   enabled: true,
   patterns: [],
-  accent: "#3f51b5",
-  headerBackground: "#3f51b5",
-  logoColor: "#ffffff",
-  logoCaption: "",
   titlePrefix: "",
   faviconLetters: "P",
+  faviconBackground: "#3f51b5",
+  rules: [],
   ...over,
 });
 

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFaviconApplier } from "./faviconApplier";
-import { createLogoBadge } from "./logoBadge";
 import { applyStyle } from "./styleInjector";
 import { createTitleApplier } from "./titleApplier";
 
@@ -101,35 +100,5 @@ describe("DOM appliers are idempotent", () => {
     );
 
     expect(records).toEqual([]);
-  });
-
-  it("logo badge writes nothing when the caption is unchanged", () => {
-    document.body.innerHTML = `<header class="vm-header"><div class="vm-header-logo"></div></header>`;
-
-    const badge = track(createLogoBadge());
-    badge.set("PROD", "#ffe082");
-    expect(document.querySelector("[data-color-vmui-caption]")?.textContent).toBe("PROD");
-
-    // Regression guard: assigning textContent replaces the element's child nodes even
-    // when the string is identical, and the badge sits inside the applier's own
-    // {childList, subtree} scope — writing it unguarded hung every vmui tab.
-    const records = recordsFrom(
-      document.documentElement,
-      { childList: true, subtree: true },
-      () => badge.set("PROD", "#ffe082"),
-    );
-
-    expect(records).toEqual([]);
-  });
-
-  it("logo badge adds exactly one caption when the header is rebuilt", () => {
-    document.body.innerHTML = `<header class="vm-header"><div class="vm-header-logo"></div></header>`;
-
-    const badge = track(createLogoBadge());
-    badge.set("PROD", "#ffe082");
-    document.body.innerHTML = `<header class="vm-header"><div class="vm-header-logo"></div></header>`;
-    badge.set("PROD", "#ffe082");
-
-    expect(document.querySelectorAll("[data-color-vmui-caption]")).toHaveLength(1);
   });
 });

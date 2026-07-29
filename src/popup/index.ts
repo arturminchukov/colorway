@@ -122,8 +122,6 @@ async function render(): Promise<void> {
     app.append(
       line("Скрипт не работает на этой вкладке — не выданы права или нужна перезагрузка", "error"),
     );
-  } else if (!reported.headerFound) {
-    app.append(line("Шапка vmui не найдена — возможно, разметка изменилась", "error"));
   } else {
     app.append(line("Применён", "muted"));
   }
