@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
@@ -16,8 +16,13 @@ const entries = {
 
 async function buildTarget(target) {
   const outDir = resolve(root, "dist", target);
-  await rm(outDir, { recursive: true, force: true });
+  // Clear the contents, never the directory itself: a browser holding this path as an
+  // unpacked extension drops it the moment the directory is unlinked, taking the
+  // extension's own pages down with it.
   await mkdir(outDir, { recursive: true });
+  for (const entry of await readdir(outDir)) {
+    await rm(resolve(outDir, entry), { recursive: true, force: true });
+  }
 
   for (const [name, entry] of Object.entries(entries)) {
     await build({

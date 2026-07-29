@@ -21,8 +21,9 @@ const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
 
 let settings: Settings = { version: 1, profiles: [] };
 
-// Cards the user has typed into since the last render(). Such a card must never be
-// rebuilt from storage — that would throw away the input the user is still editing.
+// Cards the user has typed into since the last render(). The storage listener below
+// refuses to rebuild such a card — that would throw away the input the user is still
+// editing. Adding or deleting a profile still rebuilds the whole page.
 const dirtyProfileIds = new Set<string>();
 
 // Settings changed elsewhere while a card was dirty, so the page was left standing
@@ -226,7 +227,7 @@ function renderCard(profile: Profile): HTMLElement {
         // hence the page-level message about a dangling permission.
         setPageStatus(
           revokeError
-            ? { className: "error", text: `Профиль «${profile.name}» удалён, но ${revokeError}` }
+            ? { className: "error", text: `Профиль «${removed.name}» удалён, но ${revokeError}` }
             : null,
         );
         render();
@@ -295,6 +296,9 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     settings = loaded;
     if (dirtyProfileIds.size === 0) {
+      // The page is about to show current storage with nothing owed, so any earlier
+      // staleness notice would now be describing a state that no longer exists.
+      setPageStatus(null);
       render();
       return;
     }
