@@ -53,10 +53,10 @@ function ruleState(rule: ColorRule): RuleState {
   try {
     return document.querySelectorAll(rule.selector).length > 0 ? "matched" : "not-found";
   } catch {
-    // Selector is safe (no injection characters) but the browser's selector
-    // parser still rejects it as invalid syntax. Report it like any other
-    // selector that currently matches nothing.
-    return "not-found";
+    // Safe (no injection characters) but not valid selector syntax. querySelectorAll
+    // and stylesheet parsing share one grammar, so the browser drops this rule from
+    // the injected stylesheet too: it will never paint, however the page renders.
+    return "unpainted";
   }
 }
 
