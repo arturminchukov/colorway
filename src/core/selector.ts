@@ -4,6 +4,9 @@ const GENERATED_PREFIX = /^(css|sc|jsx|emotion|styled|svelte)[-_]/i;
 /** Longest class name a human plausibly writes; beyond it, assume generated. */
 const MAX_TOKEN_LENGTH = 32;
 
+/** Shortest chunk length, after stripping a trailing counter, that can still be a fingerprint. */
+const MIN_FINGERPRINT_CHUNK_LENGTH = 5;
+
 const MAX_SELECTOR_LENGTH = 500;
 
 /** Characters that would let a selector close its rule and open another one. */
@@ -19,10 +22,17 @@ export function isStableToken(token: string): boolean {
   if (GENERATED_PREFIX.test(token)) return false;
 
   // A fingerprint shows up as one chunk mixing letters and digits ("x7f9k2"),
-  // while authored names keep digits in their own chunk ("col-md-6").
+  // while authored names keep digits in their own chunk ("col-md-6") or use
+  // a trailing counter ("avatar1", "html5") rather than interleaved digits.
   return token
     .split(/[-_]/)
-    .every((part) => part.length < 5 || !(/[a-z]/i.test(part) && /[0-9]/.test(part)));
+    .every((part) => {
+      const withoutTrailingCounter = part.replace(/[0-9]+$/, "");
+      return (
+        withoutTrailingCounter.length < MIN_FINGERPRINT_CHUNK_LENGTH ||
+        !(/[a-z]/i.test(withoutTrailingCounter) && /[0-9]/.test(withoutTrailingCounter))
+      );
+    });
 }
 
 /**

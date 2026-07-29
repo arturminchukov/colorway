@@ -21,6 +21,13 @@ describe("isStableToken", () => {
     expect(isStableToken("a1b2c3d4")).toBe(false);
   });
 
+  it("keeps authored names with a trailing counter, not a fingerprint", () => {
+    expect(isStableToken("html5")).toBe(true);
+    expect(isStableToken("step3")).toBe(true);
+    expect(isStableToken("avatar1")).toBe(true);
+    expect(isStableToken("grade10")).toBe(true);
+  });
+
   it("rejects tokens long enough to be generated", () => {
     expect(isStableToken("a".repeat(40))).toBe(false);
   });
