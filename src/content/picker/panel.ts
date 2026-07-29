@@ -1,13 +1,20 @@
 import { createRule, type ColorRule } from "../../core/profile";
 import { isSafeSelector } from "../../core/selector";
-import { PICKER_UI_ATTR } from "./selectorBuilder";
+import { matchCount, PICKER_UI_ATTR } from "./selectorBuilder";
 
 const PREVIEW_ID = "color-vmui-preview";
+
+// Kept in sync with `.panel`'s CSS `width` below. `box-sizing: border-box` on `.panel`
+// makes this the true rendered width regardless of padding, so the horizontal clamp
+// in `open()` can rely on it instead of guessing at an outer size.
+const PANEL_WIDTH = 260;
+const PANEL_HEIGHT_ESTIMATE = 160; // the panel isn't laid out yet when position is chosen, so this is a rough estimate
+const PANEL_GAP = 8;
 
 const PANEL_CSS = `
   :host { all: initial; }
   .panel {
-    position: fixed; z-index: 2147483647; width: 260px;
+    position: fixed; z-index: 2147483647; width: ${PANEL_WIDTH}px; box-sizing: border-box;
     background: #1f2430; color: #e8ecf3; border-radius: 6px;
     box-shadow: 0 6px 20px rgba(0,0,0,.35); padding: 10px;
     font: 400 12px/1.4 system-ui, sans-serif; display: grid; gap: 8px;
@@ -19,14 +26,6 @@ const PANEL_CSS = `
   .muted { opacity: .7; }
   .error { color: #ff8a80; }
 `;
-
-function matchCount(selector: string): number {
-  try {
-    return document.querySelectorAll(`${selector}:not([${PICKER_UI_ATTR}])`).length;
-  } catch {
-    return 0;
-  }
-}
 
 /**
  * Whether CSS.supports actually implements the selector() syntax, not just whether
@@ -67,6 +66,7 @@ function setPreview(css: string | null): void {
   }
   const element = existing ?? document.createElement("style");
   element.id = PREVIEW_ID;
+  element.setAttribute(PICKER_UI_ATTR, "");
   if (element.textContent !== css) element.textContent = css;
   if (!element.isConnected) document.documentElement.append(element);
 }
@@ -74,7 +74,10 @@ function setPreview(css: string | null): void {
 /**
  * The rule editor, anchored to the element being styled. It lives in a shadow root so
  * the page's stylesheet cannot reach it and its own styles cannot leak out, and it is
- * placed above or below the target so the element under edit is never covered.
+ * placed on whichever side of the target — above or below — has more free space. If
+ * the target is taller than the viewport, or spans it edge to edge, neither side has
+ * room and the panel is pinned to the edge with more space anyway; in that case it
+ * does overlap the element being edited, because no placement can avoid it.
  */
 export function createPanel(options: {
   onSave(rule: ColorRule): void;
@@ -184,12 +187,29 @@ export function createPanel(options: {
         options.onCancel();
       });
 
-      // Place the panel where it does not cover the element being edited.
+      // Place the panel on whichever side of the element has more free space, and only
+      // there if it actually fits. When the element is taller than the viewport, or
+      // spans it edge to edge (e.g. a full-height header), neither side fits; the panel
+      // is then pinned to the edge with more room and will unavoidably overlap the
+      // element, since there is nowhere left to put it.
       const rect = element.getBoundingClientRect();
-      const below = rect.bottom + 8;
-      const fitsBelow = below + 160 < window.innerHeight;
-      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 276))}px`;
-      panel.style.top = fitsBelow ? `${below}px` : `${Math.max(8, rect.top - 168)}px`;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const needed = PANEL_HEIGHT_ESTIMATE + PANEL_GAP;
+
+      let top: number;
+      if (spaceBelow >= spaceAbove && spaceBelow >= needed) {
+        top = rect.bottom + PANEL_GAP;
+      } else if (spaceAbove >= needed) {
+        top = rect.top - PANEL_GAP - PANEL_HEIGHT_ESTIMATE;
+      } else if (spaceBelow >= spaceAbove) {
+        top = window.innerHeight - PANEL_HEIGHT_ESTIMATE - PANEL_GAP;
+      } else {
+        top = PANEL_GAP;
+      }
+
+      panel.style.left = `${Math.max(PANEL_GAP, Math.min(rect.left, window.innerWidth - PANEL_WIDTH - PANEL_GAP))}px`;
+      panel.style.top = `${Math.max(PANEL_GAP, top)}px`;
     },
     close,
   };

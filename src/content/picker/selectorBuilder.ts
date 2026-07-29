@@ -10,7 +10,7 @@ const MAX_CLASSES = 3;
 const MAX_ANCESTORS = 3;
 const MAX_ATTR_VALUE = 60;
 
-function matchCount(selector: string): number {
+export function matchCount(selector: string): number {
   try {
     return document.querySelectorAll(`${selector}:not([${PICKER_UI_ATTR}])`).length;
   } catch {

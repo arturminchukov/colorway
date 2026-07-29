@@ -90,6 +90,31 @@ describe("createPanel", () => {
     expect(root.querySelector("[data-role=error]")?.textContent).toBeTruthy();
   });
 
+  it("excludes its own preview style element from the match count", () => {
+    const { root } = openPanel();
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // No <style> tags exist in the light DOM other than the picker's own preview node,
+    // so a selector broad enough to catch it must still report zero matches.
+    const input = root.querySelector<HTMLInputElement>("[data-role=selector]")!;
+    input.value = "style";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(root.querySelector("[data-role=count]")?.textContent).toContain("совпадений: 0");
+  });
+
+  it("marks the preview style element as picker ui", () => {
+    const { root } = openPanel();
+    root.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    root.querySelector<HTMLInputElement>("[data-role=background]")!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const preview = document.getElementById("color-vmui-preview");
+    expect(preview?.hasAttribute(PICKER_UI_ATTR)).toBe(true);
+  });
+
   it("removes the preview and its own nodes on cancel", () => {
     const { root, onCancel } = openPanel();
     root.querySelector<HTMLButtonElement>("[data-role=cancel]")!.click();
