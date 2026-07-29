@@ -314,8 +314,8 @@ function renderCard(profile: Profile): HTMLElement {
         let text = revokeError ? `${savedText}; ${revokeError}` : savedText;
         if (editedDuringSave) {
           text +=
-            " Карточка была изменена во время сохранения — эти новые правки ещё не сохранены, " +
-            "нажмите «Сохранить» ещё раз.";
+            ". Карточка была изменена во время сохранения — эти новые правки ещё не сохранены, " +
+            "нажмите «Сохранить» ещё раз";
         }
         status.className = granted && !revokeError && !editedDuringSave ? "muted" : "error";
         status.textContent = text;
