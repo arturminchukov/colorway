@@ -1,7 +1,8 @@
 import { buildFaviconDataUrl } from "../core/favicon";
 import { pickProfile } from "../core/matcher";
-import type { Profile } from "../core/profile";
-import { buildCss } from "../core/theme";
+import type { ColorRule, Profile } from "../core/profile";
+import { isSafeSelector } from "../core/selector";
+import { buildCss, isValidColor } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { createFaviconApplier } from "./faviconApplier";
@@ -15,26 +16,53 @@ declare global {
 }
 
 export type StatusRequest = { type: "color-vmui:status" };
-export type RuleMatch = { ruleId: string; count: number };
+
+/**
+ * - "unpainted": buildCss drops this rule entirely (unsafe selector, or no valid
+ *   color set) — it will never paint, regardless of what the page looks like.
+ * - "not-found": the rule does produce CSS, but matches no elements right now.
+ *   Could be a stale selector, or a page that has not finished rendering yet —
+ *   the stylesheet is already live and will pick up elements as they appear.
+ * - "matched": the rule produces CSS and currently matches at least one element.
+ */
+export type RuleState = "unpainted" | "not-found" | "matched";
+export type RuleMatch = { ruleId: string; state: RuleState };
 export type StatusResponse = { profileName: string | null; matches: RuleMatch[] };
 
 const favicon = createFaviconApplier();
 const title = createTitleApplier();
 
 /**
- * How many elements each rule currently hits. A zero means the site changed under a
- * selector that used to work, which is the one failure the user cannot see directly.
+ * Whether a rule produces any CSS at all. Mirrors the exact condition buildCss's
+ * internal ruleToCss uses to drop a rule, via the same exported predicates, so the
+ * two stay in lockstep without duplicating their logic here.
  */
-function countMatches(profile: Profile | null): RuleMatch[] {
+function rulePaints(rule: ColorRule): boolean {
+  if (!isSafeSelector(rule.selector)) return false;
+  const colors = [rule.background, rule.text].filter((color): color is string => color !== null);
+  return colors.length > 0 && colors.every(isValidColor);
+}
+
+/**
+ * A rule that buildCss drops is reported as "unpainted" without touching the DOM —
+ * it will never paint no matter what the page contains. Otherwise, the count of
+ * currently matching elements decides "matched" vs "not-found".
+ */
+function ruleState(rule: ColorRule): RuleState {
+  if (!rulePaints(rule)) return "unpainted";
+  try {
+    return document.querySelectorAll(rule.selector).length > 0 ? "matched" : "not-found";
+  } catch {
+    // Selector is safe (no injection characters) but the browser's selector
+    // parser still rejects it as invalid syntax. Report it like any other
+    // selector that currently matches nothing.
+    return "not-found";
+  }
+}
+
+function buildRuleMatches(profile: Profile | null): RuleMatch[] {
   if (!profile) return [];
-  return profile.rules.map((rule) => {
-    try {
-      return { ruleId: rule.id, count: document.querySelectorAll(rule.selector).length };
-    } catch {
-      // Invalid selector: the browser's parser rejected it.
-      return { ruleId: rule.id, count: 0 };
-    }
-  });
+  return profile.rules.map((rule) => ({ ruleId: rule.id, state: ruleState(rule) }));
 }
 
 let activeProfile: Profile | null = null;
@@ -75,7 +103,7 @@ function main(): void {
     if ((message as StatusRequest)?.type !== "color-vmui:status") return undefined;
     return Promise.resolve({
       profileName: activeProfile?.name ?? null,
-      matches: countMatches(activeProfile),
+      matches: buildRuleMatches(activeProfile),
     });
   });
 

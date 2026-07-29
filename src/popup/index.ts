@@ -123,17 +123,32 @@ async function render(): Promise<void> {
       line("Скрипт не работает на этой вкладке — не выданы права или нужна перезагрузка", "error"),
     );
   } else {
-    const empty = reported.matches.filter((match) => match.count === 0);
-    if (empty.length === 0) {
+    const unpainted = reported.matches.filter((match) => match.state === "unpainted");
+    const notFound = reported.matches.filter((match) => match.state === "not-found");
+
+    if (unpainted.length === 0 && notFound.length === 0) {
       app.append(line("Применён", "muted"));
     } else {
-      app.append(
-        line(
-          `Применён, но ${empty.length} из ${reported.matches.length} правил ничего не находят — ` +
-            "селекторы устарели, поправь их в настройках",
-          "error",
-        ),
-      );
+      // Two different problems need two different reactions from the user, so
+      // they get separate lines instead of being folded into one message.
+      if (unpainted.length > 0) {
+        app.append(
+          line(
+            `${unpainted.length} из ${reported.matches.length} правил ничего не красят: ` +
+              "не задан цвет или селектор небезопасен — поправь их в настройках",
+            "error",
+          ),
+        );
+      }
+      if (notFound.length > 0) {
+        app.append(
+          line(
+            `${notFound.length} из ${reported.matches.length} правил пока ничего не находят на странице — ` +
+              "возможно, она ещё не отрисовалась, либо селектор устарел",
+            "muted",
+          ),
+        );
+      }
     }
   }
 
