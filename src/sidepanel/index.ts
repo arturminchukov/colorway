@@ -33,6 +33,18 @@ let pendingSave: Settings | null = null;
 // applied once the pending edit settles instead of being silently dropped.
 let pendingExternalUpdate = false;
 
+// Bumped at the start of every render() call and captured locally as `generation`.
+// render() now awaits twice (currentTab(), tabStatus()), and tabs.onActivated /
+// tabs.onUpdated fire render() repeatedly and unconditionally — tabs.onUpdated in
+// particular fires several times during a single page load. Two overlapping calls can
+// therefore resume in either order; without this guard, whichever one resumes last
+// would append its rules section and footer (built from its own closure over
+// profile/settings/states) on top of whatever the other call already put in #app,
+// producing duplicate sections or a stale rule list next to the current one. Each
+// await point below re-checks that its own generation is still the latest and, if not,
+// abandons the render without touching the DOM — dropped, not queued or delayed.
+let renderGeneration = 0;
+
 /**
  * Without the "tabs" permission the active tab's url is readable only for sites the
  * extension already has host access to, or for the tab whose toolbar icon was just
@@ -111,7 +123,9 @@ async function tabStatus(
 }
 
 async function render(): Promise<void> {
+  const generation = ++renderGeneration;
   const tab = await currentTab();
+  if (generation !== renderGeneration) return; // superseded before touching the DOM
   app.replaceChildren();
 
   if (!tab.url || !/^https?:/.test(tab.url)) {
@@ -151,6 +165,7 @@ async function render(): Promise<void> {
     );
 
     const { states, faviconFellBack } = await tabStatus(tab.id);
+    if (generation !== renderGeneration) return; // superseded while waiting on the tab
 
     // The profile asked for a tint and the icon refused; say so where the favicon
     // setting is, not in a console nobody reads.
@@ -183,11 +198,21 @@ async function render(): Promise<void> {
 
     const footer = document.createElement("div");
     footer.className = "footer";
-    const broken = profile.rules.filter((rule) => (states.get(rule.id) ?? "unpainted") !== "matched").length;
+    // Only a rule the content script actually answered for counts toward "broken":
+    // a rule with no entry in `states` is unknown (no reply yet, or no host
+    // permission for this page), not a rule known to be broken, so it must not be
+    // folded into "not painting" — see renderRulesSection's own "unknown" fallback.
+    const known = profile.rules.filter((rule) => states.has(rule.id));
+    const broken = known.filter((rule) => states.get(rule.id) !== "matched").length;
     const note = document.createElement("span");
-    note.className = broken > 0 ? "error" : "muted";
-    note.textContent =
-      broken > 0 ? `${broken} of ${profile.rules.length} rules are not painting` : "All rules painting";
+    if (profile.rules.length > 0 && known.length === 0) {
+      note.className = "muted";
+      note.textContent = "No status yet — the page hasn't reported back.";
+    } else {
+      note.className = broken > 0 ? "error" : "muted";
+      note.textContent =
+        broken > 0 ? `${broken} of ${profile.rules.length} rules are not painting` : "All rules painting";
+    }
     const link = document.createElement("button");
     link.className = "link";
     link.textContent = "All settings →";

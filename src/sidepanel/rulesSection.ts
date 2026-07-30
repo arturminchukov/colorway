@@ -2,10 +2,17 @@ import type { RuleState } from "../content/index";
 import type { ColorRule, Profile } from "../core/profile";
 import { checkbox, colorInput, labelled, textInput } from "../shared/controls";
 
-const STATE_TITLE: Record<RuleState, string> = {
+// The panel's own state model: whatever the content script reported (RuleState),
+// plus "unknown" for a rule it has not answered for at all — the tab has not loaded
+// the content script yet, or the extension has no host permission for it. This is a
+// panel-only addition; RuleState itself (owned by the content script) is unchanged.
+type PanelRuleState = RuleState | "unknown";
+
+const STATE_TITLE: Record<PanelRuleState, string> = {
   matched: "Painting",
   "not-found": "Matches nothing right now",
   unpainted: "Will never paint: no color, or the selector is unusable",
+  unknown: "No answer from the page yet",
 };
 
 /**
@@ -89,7 +96,7 @@ export function renderRulesSection(options: {
     // One rule open at a time: a dozen expanded rules stop being a list.
     selector.addEventListener("click", () => onExpand(expanded ? null : rule.id));
 
-    const state = states.get(rule.id) ?? "unpainted";
+    const state: PanelRuleState = states.get(rule.id) ?? "unknown";
     const dot = document.createElement("span");
     dot.className = `dot ${state}`;
     dot.title = STATE_TITLE[state];

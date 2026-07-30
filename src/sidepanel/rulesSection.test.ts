@@ -55,16 +55,18 @@ describe("renderRulesSection", () => {
     expect(rows[1].querySelectorAll(".colors i")).toHaveLength(0);
   });
 
-  it("reflects the reported state on the dot, defaulting to 'unpainted' when no state is known", () => {
+  it("reflects the reported state on the dot, defaulting to 'unknown' when no state is known", () => {
     const matched = createRule(".a");
     const notFound = createRule(".b");
-    const unknown = createRule(".c");
+    const unpainted = createRule(".c");
+    const unreported = createRule(".d");
     const section = renderRulesSection(
       baseOptions({
-        profile: profileWithRules(matched, notFound, unknown),
+        profile: profileWithRules(matched, notFound, unpainted, unreported),
         states: new Map([
           [matched.id, "matched"],
           [notFound.id, "not-found"],
+          [unpainted.id, "unpainted"],
         ]),
       }),
     );
@@ -72,6 +74,11 @@ describe("renderRulesSection", () => {
     expect(dots[0].className).toBe("dot matched");
     expect(dots[1].className).toBe("dot not-found");
     expect(dots[2].className).toBe("dot unpainted");
+    // No entry at all for this rule: it must render as "unknown", not "unpainted" —
+    // the content script never answered (page not loaded yet, or no host permission),
+    // which is not the same thing as a rule confirmed broken.
+    expect(dots[3].className).toBe("dot unknown");
+    expect(dots[3].getAttribute("title")).toBe("No answer from the page yet");
   });
 
   it("toggles expansion by calling onExpand with the rule id, or null if already expanded", () => {

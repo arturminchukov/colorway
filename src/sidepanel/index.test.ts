@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StatusResponse } from "../content/index";
 import { createRule, type Profile, type Settings } from "../core/profile";
 
 // index.ts imports `settingsRepo` and `browser` from here; stubbing both lets the
@@ -68,6 +69,16 @@ function storageListener(): (changes: Record<string, unknown>, area: string) => 
     changes: Record<string, unknown>,
     area: string,
   ) => void;
+}
+
+/** tabs.onActivated's listener: fired on every tab switch, unconditionally re-renders. */
+function activatedListener(): () => void {
+  return tabsOnActivatedAddListener.mock.calls[0][0] as () => void;
+}
+
+/** tabs.onUpdated's listener: fires repeatedly during a single page load. */
+function updatedListener(): () => void {
+  return tabsOnUpdatedAddListener.mock.calls[0][0] as () => void;
 }
 
 /** Lets a test control exactly when a given `settingsRepo.load()` call resolves. */
@@ -320,13 +331,37 @@ describe("sidepanel: rules section wiring", () => {
     expect(footerNote?.textContent).toBe("1 of 2 rules are not painting");
   });
 
-  it("renders 'no states known' (all dots unpainted, nothing marked as painting) when the tab has no content script", async () => {
+  it("renders 'unknown' dots and an honest footer (not a broken count) when the tab has no content script", async () => {
     const rule = createRule(".a");
     tabsSendMessage.mockRejectedValue(new Error("Could not establish connection"));
     await loadModule(settingsWith(profile({ rules: [rule] })));
 
-    expect(getApp().querySelector(".dot")?.className).toBe("dot unpainted");
-    expect(getApp().querySelector(".footer .error")?.textContent).toBe("1 of 1 rules are not painting");
+    // No reply at all is not the same as "confirmed broken": the dot must read
+    // "unknown", and the footer must not claim "1 of 1 rules are not painting" —
+    // that would tell the user a working rule is broken.
+    expect(getApp().querySelector(".dot")?.className).toBe("dot unknown");
+    const footerNote = getApp().querySelector(".footer .muted");
+    expect(footerNote?.textContent).toBe("No status yet — the page hasn't reported back.");
+    expect(getApp().querySelector(".footer .error")).toBeNull();
+  });
+
+  it("still counts a rule the content script genuinely reported as unpainted, unlike one it never answered for", async () => {
+    const reported = createRule(".a");
+    const unreported = createRule(".b");
+    tabsSendMessage.mockResolvedValue({
+      profileName: "site",
+      matches: [{ ruleId: reported.id, state: "unpainted" }],
+      faviconFellBack: false,
+    });
+    await loadModule(settingsWith(profile({ rules: [reported, unreported] })));
+
+    const dots = getApp().querySelectorAll(".dot");
+    expect(dots[0].className).toBe("dot unpainted");
+    expect(dots[1].className).toBe("dot unknown");
+
+    // Only the genuinely-reported rule counts toward "broken"; the unreported one
+    // is excluded, not folded into the count.
+    expect(getApp().querySelector(".footer .error")?.textContent).toBe("1 of 2 rules are not painting");
   });
 
   it("clicking a rule's delete button saves the settings without it and removes its row", async () => {
@@ -346,5 +381,63 @@ describe("sidepanel: rules section wiring", () => {
     await vi.advanceTimersByTimeAsync(300);
     const saved = save.mock.calls.at(-1)?.[0] as Settings;
     expect(saved.profiles[0].rules).toHaveLength(0);
+  });
+});
+
+describe("sidepanel: overlapping renders", () => {
+  it("keeps only the newer render's rules section and footer when an older render's tabStatus() resolves later", async () => {
+    const rule = createRule(".a");
+    // The initial render during loadModule() consumes tabsSendMessage's first call.
+    tabsSendMessage.mockResolvedValueOnce({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+
+    const olderStatus = deferred<StatusResponse>();
+    const newerStatus = deferred<StatusResponse>();
+    tabsSendMessage.mockImplementationOnce(() => olderStatus.promise); // render A (older)
+    tabsSendMessage.mockImplementationOnce(() => newerStatus.promise); // render B (newer)
+
+    // tabs.onActivated fires render A. Let it run far enough to replace #app, append
+    // its top/preview/favicon sections, and reach `await tabStatus(tab.id)` — matching
+    // the finding's own description of the race — before render B starts.
+    activatedListener()();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Before A's tabStatus() settles, tabs.onUpdated fires render B — exactly the
+    // interleaving tabs.onUpdated produces repeatedly during one page load. Let B run
+    // to its own `await tabStatus(tab.id)` too.
+    updatedListener()();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The newer render (B) resolves first, with its own distinct data...
+    newerStatus.resolve({
+      profileName: "site",
+      matches: [{ ruleId: rule.id, state: "unpainted" }],
+      faviconFellBack: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // ...then the older render (A) resolves after it, carrying stale data that must
+    // never reach the DOM.
+    olderStatus.resolve({
+      profileName: "site",
+      matches: [{ ruleId: rule.id, state: "matched" }],
+      faviconFellBack: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Exactly one rules section (its unique "+ Add rule" button) and one footer —
+    // no duplicates from the two overlapping renders.
+    expect(getApp().querySelectorAll("button.primary")).toHaveLength(1);
+    expect(getApp().querySelectorAll(".footer")).toHaveLength(1);
+
+    // The DOM reflects the newer render's (B's) data, not the stale, later-arriving one.
+    expect(getApp().querySelector(".dot")?.className).toBe("dot unpainted");
+    expect(getApp().querySelector(".footer .error")?.textContent).toBe("1 of 1 rules are not painting");
   });
 });
