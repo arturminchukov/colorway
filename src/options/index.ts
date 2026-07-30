@@ -18,9 +18,9 @@ const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
 
 let settings: Settings = { version: 2, profiles: [] };
 
-// Cards the user has typed into since the last render(). The storage listener below
-// refuses to rebuild such a card — that would throw away the input the user is still
-// editing. Adding or deleting a profile still rebuilds the whole page.
+// Cards the user has typed into since the last render(). The storage listener below,
+// and the add/delete handlers in render(), all refuse to rebuild while this is
+// non-empty — that would throw away the input the user is still editing.
 const dirtyProfileIds = new Set<string>();
 
 // Settings changed elsewhere while a card was dirty, so the page was left standing
@@ -38,6 +38,24 @@ function setPageStatus(status: { className: "muted" | "error"; text: string } | 
   pageStatusEl.hidden = status === null;
   pageStatusEl.className = status?.className ?? "";
   pageStatusEl.textContent = status?.text ?? "";
+}
+
+const PENDING_REDRAW_TEXT =
+  "Настройки изменились в другом месте. Ваши правки на месте — нажмите «Сохранить» " +
+  "в изменённой карточке, чтобы записать их, или перезагрузите страницу, чтобы увидеть новые значения.";
+
+/**
+ * Marks that the page owes the user a full redraw once no card is dirty any more —
+ * whether settings changed via storage.onChanged (another tab/page) or via this
+ * page's own add/delete of a profile. Shared by every caller that hits this, so the
+ * flag and its notice can't drift apart between the places that set them.
+ */
+function deferRedraw(prefix?: string): void {
+  pendingExternalUpdate = true;
+  setPageStatus({
+    className: prefix ? "error" : "muted",
+    text: prefix ? `${prefix} ${PENDING_REDRAW_TEXT}` : PENDING_REDRAW_TEXT,
+  });
 }
 
 function labelled(text: string, control: HTMLElement): HTMLLabelElement {
@@ -355,6 +373,15 @@ function renderCard(profile: Profile): HTMLElement {
 
         const revokeError = await revokeOrphaned(orphaned);
 
+        if (dirtyProfileIds.size > 0) {
+          // Another card holds unsaved input; render() would rebuild it from
+          // scratch and throw that input away, so this profile's removal only
+          // shows up once that card is saved (or the page reloaded) — same as
+          // any other change that lands in storage while a card is dirty.
+          deferRedraw(revokeError ? `Профиль «${removed.name}» удалён, но ${revokeError}.` : undefined);
+          return;
+        }
+
         // The profile was already persisted as removed, so the card must go away
         // too — but by the time render() runs, there's no per-card status left,
         // hence the page-level message about a dangling permission.
@@ -406,12 +433,23 @@ function render(): void {
       .save(nextSettings)
       .then(() => {
         settings = nextSettings;
+
+        if (dirtyProfileIds.size > 0) {
+          // Another card holds unsaved input; render() would rebuild it from
+          // scratch and throw that input away, so the new profile only appears
+          // once that card is saved (or the page reloaded) — same as any other
+          // change that lands in storage while a card is dirty.
+          deferRedraw();
+          return;
+        }
+
         setPageStatus(null);
         render();
       })
       .catch((error: unknown) => {
+        // Nothing was persisted, so there is nothing new for any card to reflect —
+        // just report the failure without touching what is already on screen.
         setPageStatus({ className: "error", text: `Не удалось добавить профиль: ${String(error)}` });
-        render();
       });
   });
   app.append(add);
@@ -438,13 +476,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     // Rebuilding now would destroy the input being typed, so the redraw waits for
     // «Сохранить» (or a page reload) and the user is told the page is stale.
-    pendingExternalUpdate = true;
-    setPageStatus({
-      className: "muted",
-      text:
-        "Настройки изменились в другом месте. Ваши правки на месте — нажмите «Сохранить» " +
-        "в изменённой карточке, чтобы записать их, или перезагрузите страницу, чтобы увидеть новые значения.",
-    });
+    deferRedraw();
   });
 });
 
