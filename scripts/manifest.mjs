@@ -2,7 +2,7 @@ const base = {
   manifest_version: 3,
   name: "color-vmui",
   version: "0.1.0",
-  description: "Перекрашивает vmui и метит вкладку, чтобы инстансы не путались",
+  description: "Перекрашивает выбранные элементы сайта и метит вкладку, чтобы инстансы не путались",
   // No "tabs": the popup reads the active tab url via activeTab, and the background
   // filters tabs.query by patterns it already holds host permissions for.
   permissions: ["storage", "scripting", "activeTab"],
