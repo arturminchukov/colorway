@@ -1,5 +1,5 @@
 import type { Runtime } from "webextension-polyfill";
-import type { RuleState, StatusResponse } from "../content/index";
+import type { PreviewMessage, RuleState, StatusResponse } from "../content/index";
 import { pickProfile } from "../core/matcher";
 import { addRuleForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
@@ -70,6 +70,31 @@ async function currentTab(): Promise<{ id?: number; url?: string; title?: string
 }
 
 /**
+ * The minimal tab identity a preview send needs. A structural subset of what
+ * currentTab() returns, so render()'s own `tab` can be passed straight through.
+ */
+type TabTarget = { id?: number; url?: string };
+
+/**
+ * Paints `next`'s profile immediately in the tab being edited, through the content
+ * script's separate preview style element — see applyPreview in content/index.ts.
+ * The debounced save in commit() below makes it permanent; until then this is the
+ * only thing that makes a color drag visible without the 300ms lag.
+ *
+ * Takes the tab explicitly rather than querying "the active tab" at send time: the
+ * caller (a field handler built inside render(), or the picked-message listener)
+ * already knows exactly which tab it is editing, and the panel outlives tab
+ * switches — querying again here could land on a tab the user has since switched to.
+ */
+function sendPreview(next: Settings, tab: TabTarget): void {
+  if (tab.id === undefined || !tab.url) return;
+  const message: PreviewMessage = { type: "color-vmui:preview", profile: pickProfile(tab.url, next.profiles) };
+  // Rejects when no content script is listening (an unconfigured tab, a
+  // browser-internal page) — expected, and not this function's problem to surface.
+  void browser.tabs.sendMessage(tab.id, message).catch(() => {});
+}
+
+/**
  * Split in two: render() rebuilds the whole panel with app.replaceChildren(), which
  * would kick focus out of any field the user is still typing into. commit() only
  * updates state and schedules the debounced save, so it is safe to call on every
@@ -77,9 +102,10 @@ async function currentTab(): Promise<{ id?: number; url?: string; title?: string
  * that are already settled (blur, Enter, a picker closing, a button click) where a
  * fresh DOM is safe and the tab-preview strip / collapsed summary need to catch up.
  */
-function commit(next: Settings): void {
+function commit(next: Settings, tab: TabTarget): void {
   settings = next;
   pendingSave = next;
+  sendPreview(next, tab);
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     // Save exactly the `next` snapshot this call closed over, not the module-level
@@ -109,8 +135,8 @@ function commit(next: Settings): void {
   }, SAVE_DELAY_MS);
 }
 
-function commitAndRender(next: Settings): void {
-  commit(next);
+function commitAndRender(next: Settings, tab: TabTarget): void {
+  commit(next, tab);
   void render();
 }
 
@@ -196,7 +222,7 @@ async function render(): Promise<void> {
   if (profile) {
     const enabled = checkbox(profile.enabled);
     enabled.addEventListener("change", () =>
-      commitAndRender(updateProfile(settings, profile.id, { enabled: enabled.checked })),
+      commitAndRender(updateProfile(settings, profile.id, { enabled: enabled.checked }), tab),
     );
     top.append(enabled);
   }
@@ -213,8 +239,8 @@ async function render(): Promise<void> {
     app.append(
       renderFaviconSection({
         profile,
-        onPatch: (patch) => commit(updateProfile(settings, profile.id, patch)),
-        onPatchSettled: (patch) => commitAndRender(updateProfile(settings, profile.id, patch)),
+        onPatch: (patch) => commit(updateProfile(settings, profile.id, patch), tab),
+        onPatchSettled: (patch) => commitAndRender(updateProfile(settings, profile.id, patch), tab),
       }),
     );
 
@@ -240,11 +266,11 @@ async function render(): Promise<void> {
           expandedRuleId = ruleId;
           void render();
         },
-        onPatch: (ruleId, patch) => commit(updateRule(settings, profile.id, ruleId, patch)),
-        onPatchSettled: (ruleId, patch) => commitAndRender(updateRule(settings, profile.id, ruleId, patch)),
+        onPatch: (ruleId, patch) => commit(updateRule(settings, profile.id, ruleId, patch), tab),
+        onPatchSettled: (ruleId, patch) => commitAndRender(updateRule(settings, profile.id, ruleId, patch), tab),
         onRemove: (ruleId) => {
           if (expandedRuleId === ruleId) expandedRuleId = null;
-          commitAndRender(removeRule(settings, profile.id, ruleId));
+          commitAndRender(removeRule(settings, profile.id, ruleId), tab);
         },
         onAdd: () => startPicking(tab.url!, tab.id),
       }),
@@ -311,7 +337,7 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   if (pickErrorTabId === tabId) pickError = null;
   // Adding a rule changes the list's structure, so it must show up immediately —
   // consistent with every other button-initiated change in this file.
-  commitAndRender(next);
+  commitAndRender(next, { id: tabId, url: tabUrl });
   return undefined;
 });
 

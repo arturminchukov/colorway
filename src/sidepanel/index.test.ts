@@ -128,6 +128,11 @@ async function loadModule(initialSettings: Settings): Promise<void> {
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
   save.mockResolvedValue(undefined);
+  // Default for both the status request (render()'s tabStatus(), tolerant of an
+  // undefined reply via its own try/catch) and the new preview send (commit()'s
+  // sendPreview(), which calls `.catch()` on the return value and needs a real
+  // Promise for that). Tests that care about a specific reply override this.
+  tabsSendMessage.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -332,6 +337,53 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(prefixInput().value).toBe("[EXTERNAL] ");
+  });
+});
+
+describe("sidepanel: instant color preview", () => {
+  it("sends the previewed profile to the tab being edited on a field's input event, ahead of the debounced save", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    // 'input' only (no 'change'): the exact event a color slider drag fires, and the
+    // one wired to commit() rather than commitAndRender().
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await vi.waitFor(() =>
+      expect(tabsSendMessage.mock.calls.some(([, message]) => (message as { type?: string })?.type === "color-vmui:preview")).toBe(true),
+    );
+
+    // Sent to tab 1, the tab loadModule() set up as the active one being edited.
+    const previewCall = tabsSendMessage.mock.calls.find(
+      ([, message]) => (message as { type?: string })?.type === "color-vmui:preview",
+    )!;
+    expect(previewCall[0]).toBe(1);
+    const sentProfile = (previewCall[1] as { profile: Profile | null }).profile;
+    expect(sentProfile?.titlePrefix).toBe("[QA] ");
+
+    // The debounced save has not fired yet — the preview really is ahead of it.
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("does not blow up when the previewed tab has no listening content script", async () => {
+    tabsSendMessage.mockImplementation((_tabId, message) => {
+      const type = (message as { type?: string })?.type;
+      if (type === "color-vmui:preview") return Promise.reject(new Error("Could not establish connection"));
+      return Promise.resolve({ profileName: "site", matches: [], faviconFellBack: false });
+    });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Flush the rejected preview send's microtask; an unhandled rejection would fail
+    // the test run (vitest surfaces those), so reaching here at all is the assertion.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });
 

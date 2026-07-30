@@ -16,6 +16,7 @@ declare global {
 }
 
 export type StatusRequest = { type: "color-vmui:status" };
+export type PreviewMessage = { type: "color-vmui:preview"; profile: Profile | null };
 
 /**
  * - "unpainted": buildCss drops this rule entirely (unsafe selector, or no valid
@@ -86,9 +87,36 @@ function buildRuleMatches(profile: Profile | null): RuleMatch[] {
   return profile.rules.map((rule) => ({ ruleId: rule.id, state: ruleState(rule) }));
 }
 
+const PREVIEW_STYLE_ID = "color-vmui-preview";
+
+/**
+ * Storage writes are debounced, so waiting for them would show a visible lag while
+ * the user drags a color slider. The panel sends the profile it is editing straight
+ * here and we paint it at once through a separate style element, kept independent of
+ * the real one (see applyStyle) so the preview can be dropped without touching
+ * whatever is already painting for real. The debounced write eventually lands and
+ * apply() drops this preview, below.
+ */
+function applyPreview(profile: Profile | null): void {
+  const existing = document.getElementById(PREVIEW_STYLE_ID);
+  const css = profile ? buildCss(profile) : null;
+  if (!css) {
+    existing?.remove();
+    return;
+  }
+  const element = existing ?? document.createElement("style");
+  element.id = PREVIEW_STYLE_ID;
+  if (element.textContent !== css) element.textContent = css;
+  if (!element.isConnected) document.documentElement.append(element);
+}
+
 let activeProfile: Profile | null = null;
 
 function apply(profile: Profile | null): void {
+  // The real rules are landing now (or being withdrawn, if profile is null because
+  // it's disabled or no longer matches) — either way any live preview from a color
+  // drag is now stale and must not outlive it.
+  applyPreview(null);
   activeProfile = profile;
   applyStyle(profile ? buildCss(profile) : null);
 
@@ -130,6 +158,13 @@ function main(): void {
   // The listener type in @types/webextension-polyfill is a union of callback
   // shapes with differing arity, so TS cannot infer `message` from context here.
   browser.runtime.onMessage.addListener((message: unknown): Promise<StatusResponse> | undefined => {
+    if ((message as PreviewMessage)?.type === "color-vmui:preview") {
+      applyPreview((message as PreviewMessage).profile);
+      // The panel never reads this reply (it fires the send-and-forget preview from
+      // commit()); reusing StatusResponse just keeps this listener to one return type
+      // instead of inventing a second shape nobody consumes.
+      return Promise.resolve({ profileName: activeProfile?.name ?? null, matches: [], faviconFellBack });
+    }
     if ((message as StatusRequest)?.type !== "color-vmui:status") return undefined;
     return Promise.resolve({
       profileName: activeProfile?.name ?? null,

@@ -54,6 +54,21 @@ async function queryStatus(): Promise<StatusResponse> {
   return listener({ type: "color-vmui:status" });
 }
 
+/** Drives the same onMessage listener the panel's preview send hits. */
+async function sendPreview(profile: Profile | null): Promise<StatusResponse> {
+  const listener = runtimeOnMessageAddListener.mock.calls[0][0] as (
+    message: { type: "color-vmui:preview"; profile: Profile | null },
+  ) => Promise<StatusResponse>;
+  return listener({ type: "color-vmui:preview", profile });
+}
+
+/** Imports the module and waits for main()'s own initial (inert, no-profile) refresh(). */
+async function boot(): Promise<void> {
+  load.mockResolvedValueOnce({ version: 3, profiles: [] });
+  await import("./index");
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+}
+
 afterEach(() => {
   delete (window as { __colorVmuiLoaded?: boolean }).__colorVmuiLoaded;
   load.mockReset();
@@ -61,6 +76,10 @@ afterEach(() => {
   storageOnChangedAddListener.mockReset();
   runtimeOnMessageAddListener.mockReset();
   vi.resetModules();
+  // Preview/real style elements hang off documentElement (see styleInjector.ts and
+  // applyPreview), so clearing <head>/<body> alone would miss them.
+  document.getElementById("color-vmui-preview")?.remove();
+  document.getElementById("color-vmui-style")?.remove();
 });
 
 describe("favicon fallback flag survives overlapping resolutions", () => {
@@ -114,5 +133,69 @@ describe("favicon fallback flag survives overlapping resolutions", () => {
     const status = await queryStatus();
     expect(status.profileName).toBe("B");
     expect(status.faviconFellBack).toBe(false);
+  });
+});
+
+describe("instant color preview", () => {
+  const PREVIEW_ID = "color-vmui-preview";
+  const STYLE_ID = "color-vmui-style";
+
+  it("paints a previewed profile through its own style element, separate from the real one", async () => {
+    await boot();
+    const rule = { id: "r1", selector: ".hero", background: "#ff0000", text: null };
+
+    await sendPreview(profile({ rules: [rule] }));
+
+    const previewElement = document.getElementById(PREVIEW_ID);
+    expect(previewElement?.tagName).toBe("STYLE");
+    expect(previewElement?.textContent).toContain(".hero");
+    expect(previewElement?.textContent).toContain("#ff0000");
+    // The real style element (applyStyle's own) is untouched by a preview.
+    expect(document.getElementById(STYLE_ID)).toBeNull();
+  });
+
+  it("replaces rather than stacks when a second preview arrives", async () => {
+    await boot();
+    const ruleA = { id: "a", selector: ".a", background: "#111111", text: null };
+    const ruleB = { id: "b", selector: ".b", background: "#222222", text: null };
+
+    await sendPreview(profile({ rules: [ruleA] }));
+    await sendPreview(profile({ rules: [ruleB] }));
+
+    expect(document.querySelectorAll(`#${PREVIEW_ID}`)).toHaveLength(1);
+    const textContent = document.getElementById(PREVIEW_ID)?.textContent;
+    expect(textContent).toContain(".b");
+    expect(textContent).not.toContain(".a");
+  });
+
+  it("removes the preview element when sent a null profile", async () => {
+    await boot();
+    const rule = { id: "a", selector: ".a", background: "#111111", text: null };
+
+    await sendPreview(profile({ rules: [rule] }));
+    expect(document.getElementById(PREVIEW_ID)).not.toBeNull();
+
+    await sendPreview(null);
+    expect(document.getElementById(PREVIEW_ID)).toBeNull();
+  });
+
+  it("drops the preview once the real apply() runs, even when the real profile paints nothing", async () => {
+    await boot();
+    const rule = { id: "a", selector: ".a", background: "#111111", text: null };
+    await sendPreview(profile({ rules: [rule] }));
+    expect(document.getElementById(PREVIEW_ID)).not.toBeNull();
+
+    // The debounced save lands: storage.onChanged fires refresh() -> apply(). Settled
+    // with no matching profile (disabled/no-match path), which must still drop the
+    // preview rather than only the happy "real rules replace it" path.
+    const onChanged = storageOnChangedAddListener.mock.calls[0][0] as (
+      changes: Record<string, unknown>,
+      area: string,
+    ) => void;
+    load.mockResolvedValueOnce({ version: 3, profiles: [] });
+    onChanged({ settings: {} }, "local");
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+
+    expect(document.getElementById(PREVIEW_ID)).toBeNull();
   });
 });
