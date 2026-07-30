@@ -56,8 +56,13 @@ function start(): void {
   const onMove = (event: MouseEvent): void => {
     if (isOwnUi(event.target)) return;
     // Don't invite a pick that a click couldn't act on: while a save is in flight,
-    // nothing but the panel already open for it is interactable.
-    if (saving) return;
+    // nothing but the panel already open for it is interactable. Hide rather than
+    // just skip, or the outline stays parked on whatever was hovered last — which
+    // reads as a glitch instead of a pause.
+    if (saving) {
+      highlight.hide();
+      return;
+    }
     if (event.target instanceof Element) highlight.show(event.target);
   };
 
