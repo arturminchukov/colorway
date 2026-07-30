@@ -14,6 +14,18 @@ const app = document.getElementById("app")!;
 let settings: Settings = { version: 3, profiles: [] };
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+// Snapshot of the most recent commit() that has not yet been confirmed persisted:
+// non-null from the moment a save is scheduled until its settingsRepo.save() resolves.
+// Used to (a) stop the storage listener from re-rendering over an edit that is still
+// in flight, and (b) tell an old save's resolution apart from the latest one, so a
+// slow save can't clear this for an edit it doesn't belong to.
+let pendingSave: Settings | null = null;
+
+// Set when the storage listener sees a genuinely external change (options page,
+// another window) while pendingSave is still set, so that change isn't lost — it's
+// applied once the pending edit settles instead of being silently dropped.
+let pendingExternalUpdate = false;
+
 /**
  * Without the "tabs" permission the active tab's url is readable only for sites the
  * extension already has host access to, or for the tab whose toolbar icon was just
@@ -34,8 +46,26 @@ async function currentTab(): Promise<{ id?: number; url?: string; title?: string
  */
 function commit(next: Settings): void {
   settings = next;
+  pendingSave = next;
   if (saveTimer !== undefined) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void settingsRepo.save(settings), SAVE_DELAY_MS);
+  saveTimer = setTimeout(() => {
+    // Save exactly the `next` snapshot this call closed over, not the module-level
+    // `settings` variable: a storage echo (see the listener below) could otherwise
+    // reassign `settings` before this timer fires and the save would silently write
+    // back a value the user never asked for, discarding what they typed.
+    void settingsRepo.save(next).then(() => {
+      // A newer commit() may have replaced pendingSave with its own, still-unsaved
+      // snapshot and scheduled its own save (clearTimeout only cancels a pending
+      // timer, not a save already in flight). Only the save whose snapshot is still
+      // the latest pending one is allowed to clear the guard.
+      if (pendingSave !== next) return;
+      pendingSave = null;
+      if (pendingExternalUpdate) {
+        pendingExternalUpdate = false;
+        void refreshFromStorage();
+      }
+    });
+  }, SAVE_DELAY_MS);
 }
 
 function commitAndRender(next: Settings): void {
@@ -89,17 +119,35 @@ async function render(): Promise<void> {
 browser.tabs.onActivated.addListener(() => void render());
 browser.tabs.onUpdated.addListener(() => void render());
 
+async function refreshFromStorage(): Promise<void> {
+  settings = await settingsRepo.load();
+  await render();
+}
+
 browser.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !(SETTINGS_KEY in changes)) return;
   // Our own debounced write comes back here too; re-rendering from storage keeps the
   // panel honest when the options page or another window changed something.
   void settingsRepo.load().then((loaded) => {
+    // Skip our own echo: if storage already holds what the panel has, there is
+    // nothing new to show, and re-rendering would tear down a field mid-edit for
+    // no reason (same content, just a delayed round trip through storage).
+    if (JSON.stringify(loaded) === JSON.stringify(settings)) return;
+
+    if (pendingSave !== null) {
+      // An edit is still in flight: not yet confirmed saved. Rendering now would
+      // rebuild #app (see render()'s app.replaceChildren()) and kick focus out of
+      // whatever the user is still typing into — the exact failure the commit/
+      // commitAndRender split exists to prevent, just arriving on a delay. Defer
+      // the update instead of dropping it: the pending save's completion handler
+      // (see commit() above) applies it once there is no edit left to protect.
+      pendingExternalUpdate = true;
+      return;
+    }
+
     settings = loaded;
     void render();
   });
 });
 
-void settingsRepo.load().then((loaded) => {
-  settings = loaded;
-  void render();
-});
+void refreshFromStorage();

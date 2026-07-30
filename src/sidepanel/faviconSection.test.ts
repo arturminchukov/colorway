@@ -27,7 +27,8 @@ describe("renderFaviconSection", () => {
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
-    expect(original.querySelector("label")?.textContent).not.toContain("Letters");
+    const originalLabels = Array.from(original.querySelectorAll("label")).map((label) => label.textContent);
+    expect(originalLabels.some((text) => text?.includes("Letters"))).toBe(false);
 
     const initials = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "initials" },
