@@ -290,6 +290,10 @@ function renderCard(profile: Profile): HTMLElement {
         // stored nothing would be a lie. The access just granted is orphaned as well.
         const previous = settings.profiles.find((item) => item.id === next.id);
         if (!previous) {
+          // The profile is gone, so this card's input can never be saved. Drop its id
+          // for the same reason the delete handler does: an id no one can clear keeps
+          // dirtyProfileIds non-empty and silently disables every deferred redraw.
+          dirtyProfileIds.delete(next.id);
           const strandedError = await revokeOrphaned(patternsToRevoke(next, settings.profiles));
           status.className = "error";
           status.textContent = strandedError
@@ -370,6 +374,12 @@ function renderCard(profile: Profile): HTMLElement {
       .then(async () => {
         // Persisted successfully: the in-memory state may now follow storage.
         settings = nextSettings;
+
+        // This profile is gone, so any unsaved input in its own card is gone with it.
+        // Leaving its id in the set would keep dirtyProfileIds non-empty forever —
+        // nothing else can clear an id whose profile no longer exists — and every
+        // later deferred redraw would be swallowed until the page was reloaded.
+        dirtyProfileIds.delete(profile.id);
 
         const revokeError = await revokeOrphaned(orphaned);
 
