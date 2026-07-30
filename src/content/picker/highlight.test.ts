@@ -80,18 +80,22 @@ describe("createHighlight", () => {
     });
   });
 
-  it("enforces pointer-events: none with !important on the box", () => {
+  it("enforces pointer-events: none with !important on both box and label", () => {
     const highlight = createHighlight();
     live = highlight;
     document.body.innerHTML = `<div class="target">x</div>`;
     highlight.show(document.querySelector(".target")!);
 
     const box = document.querySelector<HTMLElement>(`[${PICKER_UI_ATTR}]`)!;
+    const label = box.querySelector<HTMLElement>(`[${PICKER_UI_ATTR}]`)!;
 
-    // The label is a plain descendant of the box, so it inherits `pointer-events: none`
-    // from it (an inherited CSS property) instead of needing its own hardened copy.
+    // The label needs its own hardened pointer-events, not just inheritance from
+    // the box: a page rule targeting `span` (or `*`) directly can override an
+    // inherited value, but not one the label sets on itself with !important.
     expect(box.style.getPropertyValue("pointer-events")).toBe("none");
     expect(box.style.getPropertyPriority("pointer-events")).toBe("important");
+    expect(label.style.getPropertyValue("pointer-events")).toBe("none");
+    expect(label.style.getPropertyPriority("pointer-events")).toBe("important");
   });
 
   it("does nothing on show() after destroy()", () => {

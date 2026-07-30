@@ -12,6 +12,8 @@ const BOX_STYLE = [
 
 const LABEL_STYLE = [
   "position: absolute",
+  "z-index: 2147483646",
+  "pointer-events: none",
   "left: 0",
   "top: calc(100% + 5px)",
   "padding: 4px 7px",
