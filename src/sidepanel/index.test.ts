@@ -61,6 +61,15 @@ function storageListener(): (changes: Record<string, unknown>, area: string) => 
   ) => void;
 }
 
+/** Lets a test control exactly when a given `settingsRepo.load()` call resolves. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 /** Imports the module (running its top-level side effects) and waits for the first render. */
 async function loadModule(initialSettings: Settings): Promise<void> {
   load.mockResolvedValueOnce(initialSettings);
@@ -160,5 +169,120 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
     expect(save).toHaveBeenCalledTimes(1);
     const saved = save.mock.calls[0][0] as Settings;
     expect(saved.profiles[0].titlePrefix).toBe("[QA] ");
+  });
+
+  it("does not rebuild #app for a genuinely different external change while an edit is pending, and applies it once the edit settles", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const markerBefore = getApp().firstElementChild;
+    const input = prefixInput();
+
+    // Commit only ('input', no 'change'): pendingSave is set, well within the 300ms
+    // debounce, nothing has been re-rendered yet.
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // A genuinely external change (different content, unlike the earlier echo tests)
+    // arrives while that edit is still pending.
+    load.mockResolvedValueOnce(settingsWith(profile({ titlePrefix: "[ELSEWHERE] " })));
+    storageListener()({ settings: {} }, "local");
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The `pendingSave !== null` guard must defer this instead of applying it: assert
+    // on the DOM (node identity, field value), not on mock call counts, so removing
+    // the guard actually fails this test.
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("[QA] ");
+
+    // The edit settles: its save completes, and the deferred external update is
+    // caught up via refreshFromStorage()'s own settingsRepo.load() call.
+    load.mockResolvedValueOnce(settingsWith(profile({ titlePrefix: "[ELSEWHERE] " })));
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(getApp().firstElementChild).not.toBe(markerBefore);
+    expect(prefixInput().value).toBe("[ELSEWHERE] ");
+  });
+
+  it("does not let a stale catch-up clobber a newer edit that starts while refreshFromStorage() is still loading", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+
+    // Edit A: commit only, pendingSave set.
+    input.value = "A";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // A genuinely external change arrives mid-edit; deferred so we control exactly
+    // when the storage listener's own settingsRepo.load() call resolves.
+    const externalDuringA = deferred<Settings>();
+    load.mockImplementationOnce(() => externalDuringA.promise);
+    storageListener()({ settings: {} }, "local");
+    externalDuringA.resolve(settingsWith(profile({ titlePrefix: "[ELSEWHERE] " })));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // A's save fires and resolves. Its completion handler sees pendingExternalUpdate
+    // and calls refreshFromStorage(), which starts its own settingsRepo.load() —
+    // deferred so a newer edit can start before it resolves.
+    const catchUpLoad = deferred<Settings>();
+    load.mockImplementationOnce(() => catchUpLoad.promise);
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    const markerDuringCatchUp = getApp().firstElementChild;
+
+    // Edit B starts while the catch-up's load() is still in flight.
+    input.value = "B";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // The stale catch-up now resolves with a value that predates B.
+    catchUpLoad.resolve(settingsWith(profile({ titlePrefix: "[ELSEWHERE] " })));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Without re-checking pendingSave after the await in refreshFromStorage(), this
+    // stale value would be assigned unconditionally and re-rendered, clobbering B's
+    // DOM and focus mid-edit.
+    expect(getApp().firstElementChild).toBe(markerDuringCatchUp);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("B");
+
+    // B settles; its own completion handler must retry the still-outstanding catch-up.
+    load.mockResolvedValueOnce(settingsWith(profile({ titlePrefix: "[ELSEWHERE] " })));
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect((save.mock.calls[1][0] as Settings).profiles[0].titlePrefix).toBe("B");
+    expect(getApp().firstElementChild).not.toBe(markerDuringCatchUp);
+    expect(prefixInput().value).toBe("[ELSEWHERE] ");
+  });
+
+  it("clears the pending-save guard even when save() rejects, so a later external change still applies", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+
+    save.mockRejectedValueOnce(new Error("quota exceeded"));
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+
+    // If a rejected save left pendingSave set forever, this genuinely external
+    // change would be deferred and never consumed — the panel would never react to
+    // storage again.
+    load.mockResolvedValueOnce(settingsWith(profile({ titlePrefix: "[EXTERNAL] " })));
+    storageListener()({ settings: {} }, "local");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(prefixInput().value).toBe("[EXTERNAL] ");
   });
 });

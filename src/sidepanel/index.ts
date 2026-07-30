@@ -53,7 +53,7 @@ function commit(next: Settings): void {
     // `settings` variable: a storage echo (see the listener below) could otherwise
     // reassign `settings` before this timer fires and the save would silently write
     // back a value the user never asked for, discarding what they typed.
-    void settingsRepo.save(next).then(() => {
+    const settleSave = (): void => {
       // A newer commit() may have replaced pendingSave with its own, still-unsaved
       // snapshot and scheduled its own save (clearTimeout only cancels a pending
       // timer, not a save already in flight). Only the save whose snapshot is still
@@ -64,7 +64,15 @@ function commit(next: Settings): void {
         pendingExternalUpdate = false;
         void refreshFromStorage();
       }
-    });
+    };
+    // Clear the guard on rejection too (quota exceeded, extension context
+    // invalidated, ...): if only the success path cleared it, a single failed save
+    // would leave pendingSave set forever, and every external storage change from
+    // then on would hit the `pendingSave !== null` branch below and never be
+    // consumed again. There is no error surface in this panel today; surfacing a
+    // failed save to the user is a separate piece of work, so the failure itself
+    // is deliberately swallowed here beyond clearing the guard.
+    void settingsRepo.save(next).then(settleSave, settleSave);
   }, SAVE_DELAY_MS);
 }
 
@@ -120,7 +128,19 @@ browser.tabs.onActivated.addListener(() => void render());
 browser.tabs.onUpdated.addListener(() => void render());
 
 async function refreshFromStorage(): Promise<void> {
-  settings = await settingsRepo.load();
+  const loaded = await settingsRepo.load();
+  // A new commit() can start while this load() is in flight (this function is also
+  // the catch-up called from the save-completion handler above, so the wait here
+  // overlaps with whatever the user does next). If an edit is pending again by the
+  // time we get an answer, applying `loaded` now would clobber that newer, still-
+  // unsaved edit and tear down its DOM/focus. Leave `settings` and the DOM alone;
+  // re-arm the flag so the edit's own completion handler retries the catch-up
+  // instead of the update being silently dropped.
+  if (pendingSave !== null) {
+    pendingExternalUpdate = true;
+    return;
+  }
+  settings = loaded;
   await render();
 }
 
