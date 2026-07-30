@@ -1,10 +1,12 @@
+import type { RuleState, StatusResponse } from "../content/index";
 import { pickProfile } from "../core/matcher";
 import type { Settings } from "../core/profile";
-import { updateProfile } from "../core/ruleEdits";
+import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { browser, settingsRepo } from "../shared/browser";
 import { checkbox } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { renderFaviconSection } from "./faviconSection";
+import { renderRulesSection } from "./rulesSection";
 import { renderTabPreview } from "./tabPreview";
 
 const SAVE_DELAY_MS = 300;
@@ -13,6 +15,11 @@ const app = document.getElementById("app")!;
 
 let settings: Settings = { version: 3, profiles: [] };
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Which rule's inline editor is open, at most one at a time. Purely local UI state:
+// it never touches settings, so toggling it re-renders directly instead of going
+// through commit()/commitAndRender().
+let expandedRuleId: string | null = null;
 
 // Snapshot of the most recent commit() that has not yet been confirmed persisted:
 // non-null from the moment a save is scheduled until its settingsRepo.save() resolves.
@@ -81,6 +88,28 @@ function commitAndRender(next: Settings): void {
   void render();
 }
 
+/**
+ * What the tab reports about itself; it answers only where our content script runs.
+ * A tab the extension has no host access to, or one that has not loaded the content
+ * script yet, never replies — that is not an error, it just means no states are known.
+ */
+async function tabStatus(
+  tabId: number | undefined,
+): Promise<{ states: Map<string, RuleState>; faviconFellBack: boolean }> {
+  const empty = { states: new Map<string, RuleState>(), faviconFellBack: false };
+  if (tabId === undefined) return empty;
+  try {
+    const reply = (await browser.tabs.sendMessage(tabId, { type: "color-vmui:status" })) as StatusResponse;
+    return {
+      states: new Map(reply.matches.map((match) => [match.ruleId, match.state])),
+      faviconFellBack: reply.faviconFellBack,
+    };
+  } catch {
+    // No content script in this tab yet.
+    return empty;
+  }
+}
+
 async function render(): Promise<void> {
   const tab = await currentTab();
   app.replaceChildren();
@@ -120,6 +149,51 @@ async function render(): Promise<void> {
         onPatchSettled: (patch) => commitAndRender(updateProfile(settings, profile.id, patch)),
       }),
     );
+
+    const { states, faviconFellBack } = await tabStatus(tab.id);
+
+    // The profile asked for a tint and the icon refused; say so where the favicon
+    // setting is, not in a console nobody reads.
+    if (faviconFellBack) {
+      const note = document.createElement("p");
+      note.className = "section muted";
+      note.textContent =
+        "This site's icon cannot be recolored — it comes from another domain — so the letters are used instead.";
+      app.append(note);
+    }
+
+    app.append(
+      renderRulesSection({
+        profile,
+        states,
+        expandedId: expandedRuleId,
+        onExpand: (ruleId) => {
+          expandedRuleId = ruleId;
+          void render();
+        },
+        onPatch: (ruleId, patch) => commit(updateRule(settings, profile.id, ruleId, patch)),
+        onPatchSettled: (ruleId, patch) => commitAndRender(updateRule(settings, profile.id, ruleId, patch)),
+        onRemove: (ruleId) => {
+          if (expandedRuleId === ruleId) expandedRuleId = null;
+          commitAndRender(removeRule(settings, profile.id, ruleId));
+        },
+        onAdd: () => void 0,
+      }),
+    );
+
+    const footer = document.createElement("div");
+    footer.className = "footer";
+    const broken = profile.rules.filter((rule) => (states.get(rule.id) ?? "unpainted") !== "matched").length;
+    const note = document.createElement("span");
+    note.className = broken > 0 ? "error" : "muted";
+    note.textContent =
+      broken > 0 ? `${broken} of ${profile.rules.length} rules are not painting` : "All rules painting";
+    const link = document.createElement("button");
+    link.className = "link";
+    link.textContent = "All settings →";
+    link.addEventListener("click", () => void browser.runtime.openOptionsPage());
+    footer.append(note, link);
+    app.append(footer);
   }
 }
 

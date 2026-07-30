@@ -1,25 +1,34 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Profile, Settings } from "../core/profile";
+import { createRule, type Profile, type Settings } from "../core/profile";
 
 // index.ts imports `settingsRepo` and `browser` from here; stubbing both lets the
 // test drive the module's storage.onChanged listener and tabs.query result directly,
 // the same pattern src/content/index.test.ts uses.
 const { load, save } = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
-const { storageOnChangedAddListener, tabsQuery, tabsOnActivatedAddListener, tabsOnUpdatedAddListener } = vi.hoisted(
-  () => ({
-    storageOnChangedAddListener: vi.fn(),
-    tabsQuery: vi.fn(),
-    tabsOnActivatedAddListener: vi.fn(),
-    tabsOnUpdatedAddListener: vi.fn(),
-  }),
-);
+const {
+  storageOnChangedAddListener,
+  tabsQuery,
+  tabsOnActivatedAddListener,
+  tabsOnUpdatedAddListener,
+  tabsSendMessage,
+} = vi.hoisted(() => ({
+  storageOnChangedAddListener: vi.fn(),
+  tabsQuery: vi.fn(),
+  tabsOnActivatedAddListener: vi.fn(),
+  tabsOnUpdatedAddListener: vi.fn(),
+  // Left unresolved by default (undefined return): tabStatus()'s try/catch treats
+  // that the same as "no content script answered", matching every test that does
+  // not care about rule states.
+  tabsSendMessage: vi.fn(),
+}));
 vi.mock("../shared/browser", () => ({
   settingsRepo: { load, save },
   browser: {
     storage: { onChanged: { addListener: storageOnChangedAddListener } },
     tabs: {
       query: tabsQuery,
+      sendMessage: tabsSendMessage,
       onActivated: { addListener: tabsOnActivatedAddListener },
       onUpdated: { addListener: tabsOnUpdatedAddListener },
     },
@@ -93,6 +102,7 @@ afterEach(() => {
   tabsQuery.mockReset();
   tabsOnActivatedAddListener.mockReset();
   tabsOnUpdatedAddListener.mockReset();
+  tabsSendMessage.mockReset();
   vi.resetModules();
   vi.useRealTimers();
 });
@@ -284,5 +294,57 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(prefixInput().value).toBe("[EXTERNAL] ");
+  });
+});
+
+describe("sidepanel: rules section wiring", () => {
+  it("passes the content script's reported states through to the rule dots and the footer note", async () => {
+    const matched = createRule(".matched");
+    const notFound = createRule(".gone");
+    tabsSendMessage.mockResolvedValue({
+      profileName: "site",
+      matches: [
+        { ruleId: matched.id, state: "matched" },
+        { ruleId: notFound.id, state: "not-found" },
+      ],
+      faviconFellBack: false,
+    });
+    await loadModule(settingsWith(profile({ rules: [matched, notFound] })));
+
+    const dots = getApp().querySelectorAll(".dot");
+    expect(dots[0].className).toBe("dot matched");
+    expect(dots[1].className).toBe("dot not-found");
+
+    // One of two rules is not painting.
+    const footerNote = getApp().querySelector(".footer .error");
+    expect(footerNote?.textContent).toBe("1 of 2 rules are not painting");
+  });
+
+  it("renders 'no states known' (all dots unpainted, nothing marked as painting) when the tab has no content script", async () => {
+    const rule = createRule(".a");
+    tabsSendMessage.mockRejectedValue(new Error("Could not establish connection"));
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+
+    expect(getApp().querySelector(".dot")?.className).toBe("dot unpainted");
+    expect(getApp().querySelector(".footer .error")?.textContent).toBe("1 of 1 rules are not painting");
+  });
+
+  it("clicking a rule's delete button saves the settings without it and removes its row", async () => {
+    const rule = createRule(".a");
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
+
+    vi.useFakeTimers();
+    getApp().querySelector<HTMLButtonElement>(".rule .icon")!.click();
+    // onRemove is wired through commitAndRender: the row is gone well before the
+    // debounced save fires (render()'s own currentTab()/tabStatus() microtasks aside).
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(300);
+    const saved = save.mock.calls.at(-1)?.[0] as Settings;
+    expect(saved.profiles[0].rules).toHaveLength(0);
   });
 });
