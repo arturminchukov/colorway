@@ -38,15 +38,25 @@ export function contrastText(background: string): string {
 }
 
 /**
+ * Whether a rule produces any CSS at all: its selector must be safe to interpolate
+ * into a stylesheet, and it must set at least one color, each of them valid. The
+ * single source of truth for "does this rule paint" — ruleToCss below builds on it
+ * rather than re-checking the same condition, and content/index.ts uses it directly
+ * to report a rule's state without duplicating the check there.
+ */
+export function ruleWouldPaint(rule: ColorRule): boolean {
+  if (!isSafeSelector(rule.selector)) return false;
+  const colors = [rule.background, rule.text].filter((color): color is string => color !== null);
+  return colors.length > 0 && colors.every(isValidColor);
+}
+
+/**
  * One CSS block per rule. Sites set colors inline, so every declaration needs
  * !important to win the cascade. A rule is dropped whole — never half-applied —
- * when its selector could escape the block or any color it sets is invalid.
+ * when ruleWouldPaint says it would not paint.
  */
 function ruleToCss(rule: ColorRule): string | null {
-  if (!isSafeSelector(rule.selector)) return null;
-
-  const colors = [rule.background, rule.text].filter((color): color is string => color !== null);
-  if (colors.length === 0 || !colors.every(isValidColor)) return null;
+  if (!ruleWouldPaint(rule)) return null;
 
   const declarations: string[] = [];
   if (rule.background !== null) declarations.push(`background: ${rule.background} !important`);

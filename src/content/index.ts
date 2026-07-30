@@ -1,8 +1,7 @@
 import { buildFaviconDataUrl } from "../core/favicon";
 import { pickProfile } from "../core/matcher";
 import type { ColorRule, Profile } from "../core/profile";
-import { isSafeSelector } from "../core/selector";
-import { buildCss, isValidColor } from "../core/theme";
+import { buildCss, ruleWouldPaint } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { createFaviconApplier } from "./faviconApplier";
@@ -33,23 +32,14 @@ const favicon = createFaviconApplier();
 const title = createTitleApplier();
 
 /**
- * Whether a rule produces any CSS at all. Mirrors the exact condition buildCss's
- * internal ruleToCss uses to drop a rule, via the same exported predicates, so the
- * two stay in lockstep without duplicating their logic here.
- */
-function rulePaints(rule: ColorRule): boolean {
-  if (!isSafeSelector(rule.selector)) return false;
-  const colors = [rule.background, rule.text].filter((color): color is string => color !== null);
-  return colors.length > 0 && colors.every(isValidColor);
-}
-
-/**
  * A rule that buildCss drops is reported as "unpainted" without touching the DOM —
  * it will never paint no matter what the page contains. Otherwise, the count of
- * currently matching elements decides "matched" vs "not-found".
+ * currently matching elements decides "matched" vs "not-found". ruleWouldPaint is
+ * the exact condition buildCss's internal ruleToCss uses to drop a rule, imported
+ * directly rather than duplicated here, so the two stay in lockstep for real.
  */
 function ruleState(rule: ColorRule): RuleState {
-  if (!rulePaints(rule)) return "unpainted";
+  if (!ruleWouldPaint(rule)) return "unpainted";
   try {
     return document.querySelectorAll(rule.selector).length > 0 ? "matched" : "not-found";
   } catch {
