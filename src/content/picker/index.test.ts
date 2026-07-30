@@ -1,118 +1,56 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PICKER_UI_ATTR } from "./selectorBuilder";
 
-// `../../shared/browser` re-exports `settingsRepo`; index.ts imports it directly,
-// so stubbing it here lets the test hold a save open for as long as it wants.
-const { load, save } = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
-vi.mock("../../shared/browser", () => ({ settingsRepo: { load, save } }));
+const sendMessage = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../shared/browser", () => ({ browser: { runtime: { sendMessage } } }));
 
-/** The panel host is the only picker-ui node with a shadow root (the highlight box has none). */
-function panelHost(): (Element & { shadowRoot: ShadowRoot }) | null {
-  const nodes = [...document.querySelectorAll(`[${PICKER_UI_ATTR}]`)];
-  return (nodes.find((node) => (node as HTMLElement).shadowRoot) as (Element & { shadowRoot: ShadowRoot }) | undefined) ?? null;
-}
-
-afterEach(async () => {
+afterEach(() => {
   window.__colorVmuiPickerStop?.();
   document.body.replaceChildren();
-  document.documentElement.querySelectorAll(`[${PICKER_UI_ATTR}]`).forEach((node) => node.remove());
-  load.mockReset();
-  save.mockReset();
+  sendMessage.mockClear();
   vi.resetModules();
 });
 
-describe("picker session", () => {
-  it("does not open a new panel for another element while a save is in flight", async () => {
-    document.body.innerHTML = `<div id="a">A</div><div id="b">B</div>`;
-    const elementA = document.getElementById("a")!;
-    const elementB = document.getElementById("b")!;
+const startPicker = async (): Promise<void> => {
+  await import("./index");
+};
 
-    let resolveLoad: (value: { version: 2; profiles: [] }) => void = () => {};
-    load.mockReturnValue(new Promise((resolve) => (resolveLoad = resolve)));
-    save.mockResolvedValue(undefined);
+describe("picker", () => {
+  it("reports the picked element's selector once and stops", async () => {
+    document.body.innerHTML = `<header class="vm-header">x</header>`;
+    await startPicker();
 
-    await import("./index");
+    document.querySelector("header")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    elementA.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-
-    const hostA = panelHost();
-    expect(hostA).not.toBeNull();
-    const rootA = hostA!.shadowRoot;
-    rootA.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
-    rootA.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
-    rootA.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
-
-    // The save for A is now in flight: load() has resolved to nothing yet. It's
-    // queued a microtask behind the click (see the write-serialisation chain in
-    // index.ts), so this needs a tick to actually have run.
-    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-
-    elementB.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-
-    // No second panel was opened for B, and no second load/save cycle started for it:
-    // the same panel instance, still anchored to A, is what's on screen.
-    const hostAfterClickB = panelHost();
-    expect(hostAfterClickB).toBe(hostA);
-    expect(hostAfterClickB!.shadowRoot.querySelector<HTMLInputElement>("[data-role=selector]")!.value).toBe("#a");
-    expect(load).toHaveBeenCalledTimes(1);
-
-    resolveLoad({ version: 2, profiles: [] });
-    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0][0]).toEqual({
+      type: "color-vmui:picked",
+      selector: ".vm-header",
+    });
+    // Stopped: a second click must not report anything.
+    document.querySelector("header")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("does not lose a rule from an Esc-abandoned save when a later session saves too", async () => {
-    document.body.innerHTML = `<div id="a">A</div><div id="b">B</div>`;
-    const elementA = document.getElementById("a")!;
-    const elementB = document.getElementById("b")!;
+  it("swallows the click so the page does not act on it", async () => {
+    document.body.innerHTML = `<a href="#gone">link</a>`;
+    await startPicker();
 
-    // A fake store, so load() reflects whatever the last save() actually wrote —
-    // that's what makes it meaningful to assert both rules survive, rather than
-    // just asserting call order.
-    let store: { version: 2; profiles: unknown[] } = { version: 2, profiles: [] };
-    save.mockImplementation(async (settings: { version: 2; profiles: unknown[] }) => {
-      store = settings;
-    });
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    document.querySelector("a")!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
 
-    // Session A's load is held open manually, to stand in for the moment Esc is
-    // pressed while its load+save is still in flight. Every later load() call
-    // (including session B's) resolves immediately off the fake store above.
-    let resolveLoadA: (value: { version: 2; profiles: unknown[] }) => void = () => {};
-    load.mockImplementationOnce(() => new Promise((resolve) => (resolveLoadA = resolve)));
-    load.mockImplementation(async () => structuredClone(store));
+  it("leaves nothing behind after Escape", async () => {
+    document.body.innerHTML = `<header class="vm-header">x</header>`;
+    await startPicker();
 
-    await import("./index");
-    elementA.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    const hostA = panelHost()!;
-    hostA.shadowRoot.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
-    hostA.shadowRoot.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
-    hostA.shadowRoot.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
+    document.querySelector("header")!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 
-    // Session A's save is in flight (load() pending) when Esc abandons the session.
-    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(panelHost()).toBeNull();
-
-    // Re-injection: a brand-new module scope, unaware of A's still-pending write —
-    // exactly what happens when the picker panel is injected fresh on every launch.
-    vi.resetModules();
-    await import("./index");
-
-    elementB.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    const hostB = panelHost()!;
-    hostB.shadowRoot.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
-    hostB.shadowRoot.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#1565c0";
-    hostB.shadowRoot.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
-
-    // B's save must not proceed until A's abandoned write actually lands: it queues
-    // behind it instead of racing it.
-    expect(save).not.toHaveBeenCalled();
-
-    resolveLoadA({ version: 2, profiles: [] });
-    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-
-    const profiles = store.profiles as Array<{ rules: Array<{ background: string | null }> }>;
-    expect(profiles).toHaveLength(1);
-    expect(profiles[0].rules.map((rule) => rule.background)).toEqual(["#c62828", "#1565c0"]);
+    expect(document.querySelectorAll("[data-color-vmui-ui]")).toHaveLength(0);
+    expect(window.__colorVmuiPickerStop).toBeUndefined();
+    document.querySelector("header")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

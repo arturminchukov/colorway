@@ -4,22 +4,23 @@ const BOX_STYLE = [
   "position: fixed",
   "z-index: 2147483646",
   "pointer-events: none",
-  "border: 2px solid #2f81f7",
-  "background: rgba(47, 129, 247, 0.12)",
+  "border: 2px solid #6366f1",
+  "border-radius: 3px",
+  "background: rgba(99, 102, 241, 0.12)",
   "box-sizing: border-box",
 ].join(";");
 
 const LABEL_STYLE = [
   "position: absolute",
-  "z-index: 2147483646",
-  "pointer-events: none",
   "left: 0",
-  "top: 100%",
-  "padding: 1px 6px",
-  "background: #2f81f7",
+  "top: calc(100% + 5px)",
+  "padding: 4px 7px",
+  "border-radius: 5px",
+  "background: #6366f1",
   "color: #fff",
-  "font: 500 11px/1.5 ui-monospace, monospace",
+  "font: 600 10px/1 ui-monospace, monospace",
   "white-space: nowrap",
+  "box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4)",
 ].join(";");
 
 // Properties this module's pass-through guarantee depends on, forced to survive
