@@ -46,17 +46,20 @@ let faviconFellBack = false;
  * The icon a profile asks for. Tinting can fail — a cross-origin icon taints the
  * canvas — and then the generated letters stand in, so the tab is still marked.
  * The panel reports the substitution to the user; silently swapping the mode would
- * leave them wondering why they got letters.
+ * leave them wondering why they got letters. Returns the fallback flag alongside the
+ * url instead of writing the module-level flag directly, so the caller can commit
+ * both under the same staleness guard as the DOM write (see `apply`).
  */
-async function resolveFaviconUrl(profile: Profile): Promise<string | null> {
+async function resolveFaviconUrl(profile: Profile): Promise<{ url: string | null; fellBack: boolean }> {
   const plan = faviconPlan(profile);
-  faviconFellBack = false;
-  if (plan.kind === "keep") return null;
-  if (plan.kind === "initials") return buildFaviconDataUrl(plan.letters, plan.color);
+  if (plan.kind === "keep") return { url: null, fellBack: false };
+  if (plan.kind === "initials") return { url: buildFaviconDataUrl(plan.letters, plan.color), fellBack: false };
 
   const tinted = await tinter.tint(plan.color);
-  faviconFellBack = tinted === null;
-  return tinted ?? buildFaviconDataUrl(profile.faviconLetters || profile.name, plan.color);
+  return {
+    url: tinted ?? buildFaviconDataUrl(profile.faviconLetters || profile.name, plan.color),
+    fellBack: tinted === null,
+  };
 }
 
 /**
@@ -97,10 +100,15 @@ function apply(profile: Profile | null): void {
     return;
   }
 
-  void resolveFaviconUrl(profile).then((url) => {
+  void resolveFaviconUrl(profile).then(({ url, fellBack }) => {
     // The profile may have changed while the tint was being rendered; applying a
-    // stale icon would fight the newer one on every mutation.
-    if (activeProfile === profile) favicon.set(url);
+    // stale icon would fight the newer one on every mutation, and committing a
+    // stale fellBack alongside it would report a substitution that isn't actually
+    // showing. Both are written together, guarded by the same check.
+    if (activeProfile === profile) {
+      favicon.set(url);
+      faviconFellBack = fellBack;
+    }
   });
   title.set(profile.titlePrefix);
 }
