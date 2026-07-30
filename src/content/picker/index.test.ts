@@ -43,8 +43,10 @@ describe("picker session", () => {
     rootA.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
     rootA.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
 
-    // The save for A is now in flight: load() has resolved to nothing yet.
-    expect(load).toHaveBeenCalledTimes(1);
+    // The save for A is now in flight: load() has resolved to nothing yet. It's
+    // queued a microtask behind the click (see the write-serialisation chain in
+    // index.ts), so this needs a tick to actually have run.
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
     elementB.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
@@ -57,5 +59,60 @@ describe("picker session", () => {
 
     resolveLoad({ version: 2, profiles: [] });
     await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not lose a rule from an Esc-abandoned save when a later session saves too", async () => {
+    document.body.innerHTML = `<div id="a">A</div><div id="b">B</div>`;
+    const elementA = document.getElementById("a")!;
+    const elementB = document.getElementById("b")!;
+
+    // A fake store, so load() reflects whatever the last save() actually wrote —
+    // that's what makes it meaningful to assert both rules survive, rather than
+    // just asserting call order.
+    let store: { version: 2; profiles: unknown[] } = { version: 2, profiles: [] };
+    save.mockImplementation(async (settings: { version: 2; profiles: unknown[] }) => {
+      store = settings;
+    });
+
+    // Session A's load is held open manually, to stand in for the moment Esc is
+    // pressed while its load+save is still in flight. Every later load() call
+    // (including session B's) resolves immediately off the fake store above.
+    let resolveLoadA: (value: { version: 2; profiles: unknown[] }) => void = () => {};
+    load.mockImplementationOnce(() => new Promise((resolve) => (resolveLoadA = resolve)));
+    load.mockImplementation(async () => structuredClone(store));
+
+    await import("./index");
+    elementA.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const hostA = panelHost()!;
+    hostA.shadowRoot.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    hostA.shadowRoot.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#c62828";
+    hostA.shadowRoot.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
+
+    // Session A's save is in flight (load() pending) when Esc abandons the session.
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(panelHost()).toBeNull();
+
+    // Re-injection: a brand-new module scope, unaware of A's still-pending write —
+    // exactly what happens when the picker panel is injected fresh on every launch.
+    vi.resetModules();
+    await import("./index");
+
+    elementB.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const hostB = panelHost()!;
+    hostB.shadowRoot.querySelector<HTMLInputElement>("[data-role=background-on]")!.checked = true;
+    hostB.shadowRoot.querySelector<HTMLInputElement>("[data-role=background]")!.value = "#1565c0";
+    hostB.shadowRoot.querySelector<HTMLButtonElement>("[data-role=save]")!.click();
+
+    // B's save must not proceed until A's abandoned write actually lands: it queues
+    // behind it instead of racing it.
+    expect(save).not.toHaveBeenCalled();
+
+    resolveLoadA({ version: 2, profiles: [] });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+
+    const profiles = store.profiles as Array<{ rules: Array<{ background: string | null }> }>;
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0].rules.map((rule) => rule.background)).toEqual(["#c62828", "#1565c0"]);
   });
 });

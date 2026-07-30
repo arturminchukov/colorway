@@ -7,6 +7,12 @@ import { buildSelector, PICKER_UI_ATTR } from "./selectorBuilder";
 declare global {
   interface Window {
     __colorVmuiPickerStop?: () => void;
+    // The tail of the load+save chain, across picker sessions. A session that gets
+    // re-injected (see start() below) is a brand-new module scope with a brand-new
+    // `saving` flag, so it cannot see a write an earlier, Esc-abandoned session left
+    // in flight. window is the only thing both scopes share, which is why the queue
+    // lives here rather than on any session-local variable.
+    __colorVmuiPickerWrite?: Promise<void>;
   }
 }
 
@@ -35,11 +41,24 @@ function start(): void {
     onSave: async (rule) => {
       saving = true;
       try {
-        // Awaited (not fire-and-forget) so a storage failure — quota, for instance —
-        // reaches the panel and keeps the picker mode alive instead of silently
-        // dropping the rule. stop() only runs once the write has actually succeeded.
-        const settings = await settingsRepo.load();
-        await settingsRepo.save(addRuleForUrl(settings, location.href, rule));
+        // Chain onto whatever write is still in flight from a previous session — Esc
+        // stops listeners but never cancels the pending load+save it started. Reading
+        // settings only after that write has actually landed (successfully or not) is
+        // what stops this save from racing it and silently overwriting its rule.
+        const previousWrite = window.__colorVmuiPickerWrite ?? Promise.resolve();
+        const thisWrite = previousWrite
+          // A previous session's failed write must not sink this one: only ordering
+          // is inherited here, not its outcome.
+          .catch(() => {})
+          .then(async () => {
+            // Awaited (not fire-and-forget) so a storage failure — quota, for instance —
+            // reaches the panel and keeps the picker mode alive instead of silently
+            // dropping the rule. stop() only runs once the write has actually succeeded.
+            const settings = await settingsRepo.load();
+            await settingsRepo.save(addRuleForUrl(settings, location.href, rule));
+          });
+        window.__colorVmuiPickerWrite = thisWrite;
+        await thisWrite;
         stop();
       } finally {
         // On success the session is stopped anyway (listeners gone). On failure the
