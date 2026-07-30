@@ -1,6 +1,6 @@
 import type { RuleState, StatusResponse } from "../content/index";
 import { pickProfile } from "../core/matcher";
-import type { Settings } from "../core/profile";
+import { addRuleForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { browser, settingsRepo } from "../shared/browser";
 import { checkbox } from "../shared/controls";
@@ -20,6 +20,13 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 // it never touches settings, so toggling it re-renders directly instead of going
 // through commit()/commitAndRender().
 let expandedRuleId: string | null = null;
+
+// Set when starting the picker fails: permission refused, or the background could
+// not inject it. Purely local UI state, like expandedRuleId above. Cleared at the
+// start of every new attempt and again the moment a pick actually creates a rule,
+// so a failure from an earlier attempt never lingers on screen next to a later
+// success.
+let pickError: string | null = null;
 
 // Snapshot of the most recent commit() that has not yet been confirmed persisted:
 // non-null from the moment a save is scheduled until its settingsRepo.save() resolves.
@@ -101,6 +108,35 @@ function commitAndRender(next: Settings): void {
 }
 
 /**
+ * permissions.request() must be the first await after the click: the panel is an
+ * extension page and this click is the user gesture, which Firefox insists on.
+ */
+function startPicking(url: string, tabId: number | undefined): void {
+  if (tabId === undefined) return;
+  pickError = null;
+
+  const origin = `*://${new URL(url).hostname}/*`;
+  void browser.permissions
+    .request({ origins: [origin] })
+    .then(async (granted) => {
+      if (!granted) {
+        pickError = "Without access to this site the picker cannot run.";
+        void render();
+        return;
+      }
+      const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
+      if (started === false) {
+        pickError = "The picker cannot run on this tab.";
+        void render();
+      }
+    })
+    .catch((error: unknown) => {
+      pickError = `Could not start the picker: ${String(error)}`;
+      void render();
+    });
+}
+
+/**
  * What the tab reports about itself; it answers only where our content script runs.
  * A tab the extension has no host access to, or one that has not loaded the content
  * script yet, never replies — that is not an error, it just means no states are known.
@@ -155,6 +191,13 @@ async function render(): Promise<void> {
   }
   app.append(top);
 
+  if (pickError) {
+    const note = document.createElement("p");
+    note.className = "section error";
+    note.textContent = pickError;
+    app.append(note);
+  }
+
   if (profile) {
     app.append(
       renderFaviconSection({
@@ -192,7 +235,7 @@ async function render(): Promise<void> {
           if (expandedRuleId === ruleId) expandedRuleId = null;
           commitAndRender(removeRule(settings, profile.id, ruleId));
         },
-        onAdd: () => void 0,
+        onAdd: () => startPicking(tab.url!, tab.id),
       }),
     );
 
@@ -225,6 +268,33 @@ async function render(): Promise<void> {
 // The panel outlives tab switches, so it re-reads the tab whenever the user moves.
 browser.tabs.onActivated.addListener(() => void render());
 browser.tabs.onUpdated.addListener(() => void render());
+
+type PickedMessage = { type: "color-vmui:picked"; selector: string };
+
+// The picker (a separately injected script) sends this once, on click, then stops.
+// This listener never answers back, and browser.runtime.onMessage also delivers
+// messages meant for other listeners (e.g. the content script's own status
+// request), so anything that is not our own message type must be ignored and must
+// return undefined synchronously — claiming the response channel here would starve
+// whichever listener the message was actually meant for.
+browser.runtime.onMessage.addListener((message: unknown): undefined => {
+  const picked = message as PickedMessage;
+  if (picked?.type !== "color-vmui:picked") return undefined;
+
+  void currentTab().then((tab) => {
+    if (!tab.url) return;
+    const next = addRuleForUrl(settings, tab.url, createRule(picked.selector));
+    // Open the rule that was just created: its colors are the reason the user picked.
+    const profile = pickProfile(tab.url, next.profiles);
+    expandedRuleId = profile?.rules.at(-1)?.id ?? null;
+    // A successful pick supersedes any failure message left over from an earlier attempt.
+    pickError = null;
+    // Adding a rule changes the list's structure, so it must show up immediately —
+    // consistent with every other button-initiated change in this file.
+    commitAndRender(next);
+  });
+  return undefined;
+});
 
 async function refreshFromStorage(): Promise<void> {
   const loaded = await settingsRepo.load();

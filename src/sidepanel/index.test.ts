@@ -13,6 +13,9 @@ const {
   tabsOnActivatedAddListener,
   tabsOnUpdatedAddListener,
   tabsSendMessage,
+  permissionsRequest,
+  runtimeSendMessage,
+  runtimeOnMessageAddListener,
 } = vi.hoisted(() => ({
   storageOnChangedAddListener: vi.fn(),
   tabsQuery: vi.fn(),
@@ -22,6 +25,9 @@ const {
   // that the same as "no content script answered", matching every test that does
   // not care about rule states.
   tabsSendMessage: vi.fn(),
+  permissionsRequest: vi.fn(),
+  runtimeSendMessage: vi.fn(),
+  runtimeOnMessageAddListener: vi.fn(),
 }));
 vi.mock("../shared/browser", () => ({
   settingsRepo: { load, save },
@@ -32,6 +38,11 @@ vi.mock("../shared/browser", () => ({
       sendMessage: tabsSendMessage,
       onActivated: { addListener: tabsOnActivatedAddListener },
       onUpdated: { addListener: tabsOnUpdatedAddListener },
+    },
+    permissions: { request: permissionsRequest },
+    runtime: {
+      sendMessage: runtimeSendMessage,
+      onMessage: { addListener: runtimeOnMessageAddListener },
     },
   },
 }));
@@ -81,6 +92,16 @@ function updatedListener(): () => void {
   return tabsOnUpdatedAddListener.mock.calls[0][0] as () => void;
 }
 
+/** runtime.onMessage's listener registered by the panel for the picker's result. */
+function pickedListener(): (message: unknown) => undefined {
+  return runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown) => undefined;
+}
+
+/** The rules section's "+ Add rule" button. */
+function addRuleButton(): HTMLButtonElement {
+  return getApp().querySelector<HTMLButtonElement>("button.primary")!;
+}
+
 /** Lets a test control exactly when a given `settingsRepo.load()` call resolves. */
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -114,6 +135,9 @@ afterEach(() => {
   tabsOnActivatedAddListener.mockReset();
   tabsOnUpdatedAddListener.mockReset();
   tabsSendMessage.mockReset();
+  permissionsRequest.mockReset();
+  runtimeSendMessage.mockReset();
+  runtimeOnMessageAddListener.mockReset();
   vi.resetModules();
   vi.useRealTimers();
 });
@@ -381,6 +405,89 @@ describe("sidepanel: rules section wiring", () => {
     await vi.advanceTimersByTimeAsync(300);
     const saved = save.mock.calls.at(-1)?.[0] as Settings;
     expect(saved.profiles[0].rules).toHaveLength(0);
+  });
+});
+
+describe("sidepanel: adding a rule via the picker", () => {
+  it("requests host permission and starts the picker when '+ Add rule' is clicked and permission is granted", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile()));
+
+    permissionsRequest.mockResolvedValue(true);
+    runtimeSendMessage.mockResolvedValue(true);
+
+    addRuleButton().click();
+
+    await vi.waitFor(() =>
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+    );
+    expect(permissionsRequest).toHaveBeenCalledWith({ origins: ["*://example.com/*"] });
+    expect(getApp().querySelector(".section.error")).toBeNull();
+  });
+
+  it("surfaces an error and does not start the picker when the permission request is refused", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile()));
+
+    permissionsRequest.mockResolvedValue(false);
+
+    addRuleButton().click();
+
+    await vi.waitFor(() => expect(getApp().querySelector(".section.error")).not.toBeNull());
+    expect(getApp().querySelector(".section.error")?.textContent).toBe(
+      "Without access to this site the picker cannot run.",
+    );
+    expect(runtimeSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an error and clears it on a later successful pick, without ever leaving it stale", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    // First attempt: background reports it could not inject the picker.
+    permissionsRequest.mockResolvedValue(true);
+    runtimeSendMessage.mockResolvedValue(false);
+    addRuleButton().click();
+    await vi.waitFor(() =>
+      expect(getApp().querySelector(".section.error")?.textContent).toBe("The picker cannot run on this tab."),
+    );
+
+    // A picked message now arrives (e.g. from a picker started before the failure) and
+    // succeeds: the stale error must not survive the re-render it triggers.
+    pickedListener()({ type: "color-vmui:picked", selector: ".picked" });
+
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
+    expect(getApp().querySelector(".section.error")).toBeNull();
+  });
+
+  it("creates the rule and leaves it expanded when a color-vmui:picked message arrives", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    const result = pickedListener()({ type: "color-vmui:picked", selector: ".picked" });
+    // The listener never answers back; it must not claim the response channel.
+    expect(result).toBeUndefined();
+
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
+    expect(getApp().querySelector(".rule")?.textContent).toContain(".picked");
+    // Expanded: the rule's inline editor (its selector field) is on screen already,
+    // with no extra click needed.
+    const editorSelectorInput = getApp().querySelector<HTMLInputElement>('.editor input[type="text"]');
+    expect(editorSelectorInput?.value).toBe(".picked");
+  });
+
+  it("ignores a message of another type and does not create a rule", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    const result = pickedListener()({ type: "some-other-message" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(result).toBeUndefined();
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
   });
 });
 
