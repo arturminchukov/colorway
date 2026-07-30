@@ -1,10 +1,11 @@
-import { buildFaviconDataUrl } from "../core/favicon";
+import { buildFaviconDataUrl, faviconPlan } from "../core/favicon";
 import { pickProfile } from "../core/matcher";
 import type { ColorRule, Profile } from "../core/profile";
 import { buildCss, ruleWouldPaint } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { createFaviconApplier } from "./faviconApplier";
+import { createFaviconTinter } from "./faviconTint";
 import { applyStyle } from "./styleInjector";
 import { createTitleApplier } from "./titleApplier";
 
@@ -26,10 +27,37 @@ export type StatusRequest = { type: "color-vmui:status" };
  */
 export type RuleState = "unpainted" | "not-found" | "matched";
 export type RuleMatch = { ruleId: string; state: RuleState };
-export type StatusResponse = { profileName: string | null; matches: RuleMatch[] };
+export type StatusResponse = {
+  profileName: string | null;
+  matches: RuleMatch[];
+  faviconFellBack: boolean;
+};
 
 const favicon = createFaviconApplier();
 const title = createTitleApplier();
+const tinter = createFaviconTinter();
+
+// True when the profile asked for a tint but the icon could not be recolored, so the
+// generated letters stand in. The panel surfaces this; a silent substitution would
+// leave the user wondering why they got letters.
+let faviconFellBack = false;
+
+/**
+ * The icon a profile asks for. Tinting can fail — a cross-origin icon taints the
+ * canvas — and then the generated letters stand in, so the tab is still marked.
+ * The panel reports the substitution to the user; silently swapping the mode would
+ * leave them wondering why they got letters.
+ */
+async function resolveFaviconUrl(profile: Profile): Promise<string | null> {
+  const plan = faviconPlan(profile);
+  faviconFellBack = false;
+  if (plan.kind === "keep") return null;
+  if (plan.kind === "initials") return buildFaviconDataUrl(plan.letters, plan.color);
+
+  const tinted = await tinter.tint(plan.color);
+  faviconFellBack = tinted === null;
+  return tinted ?? buildFaviconDataUrl(profile.faviconLetters || profile.name, plan.color);
+}
 
 /**
  * A rule that buildCss drops is reported as "unpainted" without touching the DOM —
@@ -69,7 +97,11 @@ function apply(profile: Profile | null): void {
     return;
   }
 
-  favicon.set(buildFaviconDataUrl(profile.faviconLetters, profile.faviconColor));
+  void resolveFaviconUrl(profile).then((url) => {
+    // The profile may have changed while the tint was being rendered; applying a
+    // stale icon would fight the newer one on every mutation.
+    if (activeProfile === profile) favicon.set(url);
+  });
   title.set(profile.titlePrefix);
 }
 
@@ -94,6 +126,7 @@ function main(): void {
     return Promise.resolve({
       profileName: activeProfile?.name ?? null,
       matches: buildRuleMatches(activeProfile),
+      faviconFellBack,
     });
   });
 
