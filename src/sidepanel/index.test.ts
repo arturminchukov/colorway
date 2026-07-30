@@ -92,9 +92,12 @@ function updatedListener(): () => void {
   return tabsOnUpdatedAddListener.mock.calls[0][0] as () => void;
 }
 
+/** Only the `tab` shape the picked-message listener actually reads. */
+type FakeSender = { tab?: { id?: number; url?: string } };
+
 /** runtime.onMessage's listener registered by the panel for the picker's result. */
-function pickedListener(): (message: unknown) => undefined {
-  return runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown) => undefined;
+function pickedListener(): (message: unknown, sender?: FakeSender) => undefined {
+  return runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown, sender?: FakeSender) => undefined;
 }
 
 /** The rules section's "+ Add rule" button. */
@@ -453,8 +456,12 @@ describe("sidepanel: adding a rule via the picker", () => {
     );
 
     // A picked message now arrives (e.g. from a picker started before the failure) and
-    // succeeds: the stale error must not survive the re-render it triggers.
-    pickedListener()({ type: "color-vmui:picked", selector: ".picked" });
+    // succeeds: the stale error must not survive the re-render it triggers. Same tab
+    // (id 1) the error was raised for, per loadModule()'s default active tab.
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
 
     await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
     expect(getApp().querySelector(".section.error")).toBeNull();
@@ -464,7 +471,10 @@ describe("sidepanel: adding a rule via the picker", () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ rules: [] })));
 
-    const result = pickedListener()({ type: "color-vmui:picked", selector: ".picked" });
+    const result = pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
     // The listener never answers back; it must not claim the response channel.
     expect(result).toBeUndefined();
 
@@ -488,6 +498,84 @@ describe("sidepanel: adding a rule via the picker", () => {
 
     expect(result).toBeUndefined();
     expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
+  });
+
+  it("attaches the picked rule to the tab that ran the picker, not to whatever tab is active now", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    // No profile matches either host yet, so addRuleForUrl() creates a fresh one keyed
+    // by hostname — that lets the assertion below tell "attached to tab A's site" apart
+    // from "attached to tab B's site" unambiguously.
+    await loadModule(settingsWith());
+
+    vi.useFakeTimers();
+
+    // The panel survives tab switches: by the time the picker's message is handled,
+    // the window's active tab has moved on to a different site (id 2). This is exactly
+    // the race from the finding — a switch between the picker's click and the message
+    // arriving.
+    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
+
+    // sender.tab names tab 1 (example.com) — the tab the picker actually ran in.
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    const saved = save.mock.calls[0][0] as Settings;
+    const createdForA = saved.profiles.find((p) => p.patterns.includes("*://example.com/*"));
+    expect(createdForA?.rules.map((r) => r.selector)).toEqual([".picked"]);
+    expect(saved.profiles.some((p) => p.patterns.includes("*://other.example/*"))).toBe(false);
+  });
+
+  it("does nothing when the picked message carries no usable sender tab", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    const result = pickedListener()({ type: "color-vmui:picked", selector: ".picked" }, { tab: undefined });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(result).toBeUndefined();
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
+  });
+});
+
+describe("sidepanel: pick error follows its own tab", () => {
+  it("hides the error once the panel switches to another tab, but keeps it across a plain re-render of the same tab", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    // A wildcard profile so both tab 1's and tab 2's site still render a panel.
+    await loadModule(settingsWith(profile()));
+
+    permissionsRequest.mockResolvedValue(false);
+    addRuleButton().click();
+    await vi.waitFor(() =>
+      expect(getApp().querySelector(".section.error")?.textContent).toBe(
+        "Without access to this site the picker cannot run.",
+      ),
+    );
+
+    // A plain re-render of the same tab (tabs.onUpdated firing again mid-load, for
+    // instance) must not blink the error away: the user has not acted on it yet.
+    tabsQuery.mockResolvedValue([{ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined }]);
+    updatedListener()();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getApp().querySelector(".section.error")?.textContent).toBe(
+      "Without access to this site the picker cannot run.",
+    );
+
+    // The user switches to a different tab (a different site): the error belongs to
+    // tab 1 and must not follow them there.
+    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
+    activatedListener()();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getApp().querySelector(".section.error")).toBeNull();
   });
 });
 

@@ -1,3 +1,4 @@
+import type { Runtime } from "webextension-polyfill";
 import type { RuleState, StatusResponse } from "../content/index";
 import { pickProfile } from "../core/matcher";
 import { addRuleForUrl, createRule, type Settings } from "../core/profile";
@@ -22,11 +23,17 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let expandedRuleId: string | null = null;
 
 // Set when starting the picker fails: permission refused, or the background could
-// not inject it. Purely local UI state, like expandedRuleId above. Cleared at the
-// start of every new attempt and again the moment a pick actually creates a rule,
-// so a failure from an earlier attempt never lingers on screen next to a later
-// success.
+// not inject it. Purely local UI state, like expandedRuleId above. Scoped to the tab
+// it was raised for via pickErrorTabId below, so render() only shows it while that
+// same tab is the one on screen — an error from site A must not follow the user to
+// unrelated site B on a tab switch. Cleared at the start of every new attempt and
+// again the moment a pick actually creates a rule for the same tab, so a failure
+// from an earlier attempt never lingers on screen next to a later success.
 let pickError: string | null = null;
+
+// The tab startPicking() was raised the current pickError for. See render(), which
+// only displays pickError while this still matches the tab on screen.
+let pickErrorTabId: number | undefined = undefined;
 
 // Snapshot of the most recent commit() that has not yet been confirmed persisted:
 // non-null from the moment a save is scheduled until its settingsRepo.save() resolves.
@@ -114,6 +121,7 @@ function commitAndRender(next: Settings): void {
 function startPicking(url: string, tabId: number | undefined): void {
   if (tabId === undefined) return;
   pickError = null;
+  pickErrorTabId = undefined;
 
   const origin = `*://${new URL(url).hostname}/*`;
   void browser.permissions
@@ -121,17 +129,20 @@ function startPicking(url: string, tabId: number | undefined): void {
     .then(async (granted) => {
       if (!granted) {
         pickError = "Without access to this site the picker cannot run.";
+        pickErrorTabId = tabId;
         void render();
         return;
       }
       const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
       if (started === false) {
         pickError = "The picker cannot run on this tab.";
+        pickErrorTabId = tabId;
         void render();
       }
     })
     .catch((error: unknown) => {
       pickError = `Could not start the picker: ${String(error)}`;
+      pickErrorTabId = tabId;
       void render();
     });
 }
@@ -191,7 +202,7 @@ async function render(): Promise<void> {
   }
   app.append(top);
 
-  if (pickError) {
+  if (pickError && pickErrorTabId === tab.id) {
     const note = document.createElement("p");
     note.className = "section error";
     note.textContent = pickError;
@@ -277,22 +288,30 @@ type PickedMessage = { type: "color-vmui:picked"; selector: string };
 // request), so anything that is not our own message type must be ignored and must
 // return undefined synchronously — claiming the response channel here would starve
 // whichever listener the message was actually meant for.
-browser.runtime.onMessage.addListener((message: unknown): undefined => {
+browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.MessageSender): undefined => {
   const picked = message as PickedMessage;
   if (picked?.type !== "color-vmui:picked") return undefined;
 
-  void currentTab().then((tab) => {
-    if (!tab.url) return;
-    const next = addRuleForUrl(settings, tab.url, createRule(picked.selector));
-    // Open the rule that was just created: its colors are the reason the user picked.
-    const profile = pickProfile(tab.url, next.profiles);
-    expandedRuleId = profile?.rules.at(-1)?.id ?? null;
-    // A successful pick supersedes any failure message left over from an earlier attempt.
-    pickError = null;
-    // Adding a rule changes the list's structure, so it must show up immediately —
-    // consistent with every other button-initiated change in this file.
-    commitAndRender(next);
-  });
+  // sender.tab identifies the tab the picker actually ran in, synchronously and with
+  // no query involved. Re-deriving "the active tab" via currentTab() instead would be
+  // wrong: the panel survives tab switches, so a switch between the picker's click and
+  // this listener running could attach the rule to whatever tab is active now, not the
+  // one the user was picking on. No usable sender tab means there is nothing safe to
+  // attach the rule to, so do nothing rather than guessing.
+  const tabId = sender.tab?.id;
+  const tabUrl = sender.tab?.url;
+  if (tabId === undefined || !tabUrl) return undefined;
+
+  const next = addRuleForUrl(settings, tabUrl, createRule(picked.selector));
+  // Open the rule that was just created: its colors are the reason the user picked.
+  const profile = pickProfile(tabUrl, next.profiles);
+  expandedRuleId = profile?.rules.at(-1)?.id ?? null;
+  // A successful pick supersedes a failure message left over from an earlier attempt,
+  // but only the one raised for this same tab — see pickErrorTabId above.
+  if (pickErrorTabId === tabId) pickError = null;
+  // Adding a rule changes the list's structure, so it must show up immediately —
+  // consistent with every other button-initiated change in this file.
+  commitAndRender(next);
   return undefined;
 });
 
