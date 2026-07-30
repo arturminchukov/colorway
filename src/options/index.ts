@@ -1,7 +1,7 @@
 import { patternsToRevoke } from "../core/permissions";
 import { createProfile, createRule, type ColorRule, type Profile, type Settings } from "../core/profile";
-import { isValidColor } from "../core/theme";
 import { browser, settingsRepo } from "../shared/browser";
+import { checkbox, colorInput, labelled, textInput } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const app = document.getElementById("app")!;
@@ -58,26 +58,6 @@ function deferRedraw(prefix?: string): void {
   });
 }
 
-function labelled(text: string, control: HTMLElement): HTMLLabelElement {
-  const label = document.createElement("label");
-  label.append(text, control);
-  return label;
-}
-
-function textInput(value: string): HTMLInputElement {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = value;
-  return input;
-}
-
-function colorInput(value: string): HTMLInputElement {
-  const input = document.createElement("input");
-  input.type = "color";
-  input.value = isValidColor(value) ? value : "#3f51b5";
-  return input;
-}
-
 /**
  * Gives back host access that no profile needs any more, so the extension does not
  * hoard permissions. permissions.remove(), like permissions.request(), resolves with
@@ -123,9 +103,7 @@ function renderRule(
   colorControls.className = "row";
 
   const build = (label: string, value: string | null): { wrap: HTMLElement; read: () => string | null } => {
-    const enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.checked = value !== null;
+    const enabled = checkbox(value !== null);
 
     const color = colorInput(value ?? "#3f51b5");
     color.disabled = value === null;
@@ -174,9 +152,7 @@ function renderCard(profile: Profile): HTMLElement {
   card.addEventListener("input", markDirty);
   card.addEventListener("change", markDirty);
 
-  const enabled = document.createElement("input");
-  enabled.type = "checkbox";
-  enabled.checked = profile.enabled;
+  const enabled = checkbox(profile.enabled);
 
   const header = document.createElement("div");
   header.className = "row";

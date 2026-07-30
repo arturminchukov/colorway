@@ -1,5 +1,6 @@
 import { activePatterns } from "../core/permissions";
 import { browser, settingsRepo } from "../shared/browser";
+import { openSidebarOnActionClick } from "../shared/sidebar";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const SCRIPT_ID = "vmui";
@@ -81,3 +82,4 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 browser.permissions.onAdded.addListener(() => void syncRegistration());
 browser.permissions.onRemoved.addListener(() => void syncRegistration());
+openSidebarOnActionClick();
