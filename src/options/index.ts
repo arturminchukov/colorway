@@ -442,8 +442,8 @@ function render(): void {
 }
 
 // options_ui.open_in_tab keeps this page alive indefinitely, so settings can change
-// under it — from the popup or from a second options tab. Follow storage instead of
-// writing a page-load snapshot back over those changes.
+// under it — from the side panel or from a second options tab. Follow storage instead
+// of writing a page-load snapshot back over those changes.
 browser.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !(SETTINGS_KEY in changes)) return;
   void settingsRepo.load().then((loaded) => {

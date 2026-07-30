@@ -16,6 +16,9 @@ const overrides = {
     background: { service_worker: "background.js" },
     side_panel: { default_path: "sidepanel.html" },
     minimum_chrome_version: "116",
+    // "sidePanel" only exists as a Chrome permission; Firefox has no such permission
+    // and would warn about it as unknown, so it is added here rather than in `base`.
+    permissions: [...base.permissions, "sidePanel"],
   },
   firefox: {
     background: { scripts: ["background.js"] },
