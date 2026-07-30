@@ -8,8 +8,9 @@ const profile = (over: Partial<Profile>): Profile => ({
   enabled: true,
   patterns: [],
   titlePrefix: "",
+  faviconMode: "tinted",
+  faviconColor: "#3f51b5",
   faviconLetters: "P",
-  faviconBackground: "#3f51b5",
   rules: [],
   ...over,
 });

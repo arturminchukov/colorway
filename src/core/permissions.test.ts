@@ -8,8 +8,9 @@ const profile = (id: string, patterns: string[], enabled = true): Profile => ({
   enabled,
   patterns,
   titlePrefix: "",
+  faviconMode: "tinted",
+  faviconColor: "#3f51b5",
   faviconLetters: "VM",
-  faviconBackground: "#3f51b5",
   rules: [],
 });
 

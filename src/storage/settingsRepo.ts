@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type ColorRule, type Profile, type Settings } from "../core/profile";
+import { DEFAULT_SETTINGS, type ColorRule, type FaviconMode, type Profile, type Settings } from "../core/profile";
 
 export const SETTINGS_KEY = "settings";
 
@@ -18,9 +18,11 @@ const PROFILE_STRING_FIELDS = [
   "id",
   "name",
   "titlePrefix",
+  "faviconColor",
   "faviconLetters",
-  "faviconBackground",
 ] as const satisfies readonly (keyof Profile)[];
+
+const FAVICON_MODES: readonly FaviconMode[] = ["original", "tinted", "initials"];
 
 function isRule(value: unknown): value is ColorRule {
   if (typeof value !== "object" || value === null) return false;
@@ -39,17 +41,18 @@ function isProfile(value: unknown): value is Profile {
   const candidate = value as Partial<Profile>;
   const hasValidStrings = PROFILE_STRING_FIELDS.every((field) => typeof candidate[field] === "string");
   const hasValidEnabled = typeof candidate.enabled === "boolean";
+  const hasValidMode = FAVICON_MODES.includes(candidate.faviconMode as FaviconMode);
   const hasValidPatterns =
     Array.isArray(candidate.patterns) && candidate.patterns.every((pattern) => typeof pattern === "string");
   const hasValidRules = Array.isArray(candidate.rules) && candidate.rules.every(isRule);
-  return hasValidStrings && hasValidEnabled && hasValidPatterns && hasValidRules;
+  return hasValidStrings && hasValidEnabled && hasValidMode && hasValidPatterns && hasValidRules;
 }
 
 /** Checks only the outer shape; individual profiles are validated separately in load(). */
-function isSettingsShape(value: unknown): value is { version: 2; profiles: unknown[] } {
+function isSettingsShape(value: unknown): value is { version: 3; profiles: unknown[] } {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as { version?: unknown; profiles?: unknown };
-  return candidate.version === 2 && Array.isArray(candidate.profiles);
+  return candidate.version === 3 && Array.isArray(candidate.profiles);
 }
 
 export function createSettingsRepo(area: StorageArea): SettingsRepo {

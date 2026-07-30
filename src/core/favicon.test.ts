@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildFaviconDataUrl } from "./favicon";
+import { buildFaviconDataUrl, faviconPlan } from "./favicon";
+import type { Profile } from "./profile";
 
 describe("buildFaviconDataUrl", () => {
   it("returns an svg data url", () => {
@@ -58,5 +59,45 @@ describe("buildFaviconDataUrl", () => {
   it("returns null for a value that is nothing but an unpaired surrogate", () => {
     expect(() => buildFaviconDataUrl("\ud83d", "#c62828")).not.toThrow();
     expect(buildFaviconDataUrl("\ud83d", "#c62828")).toBeNull();
+  });
+});
+
+const profile = (over: Partial<Profile>): Profile => ({
+  id: "p",
+  name: "PROD",
+  enabled: true,
+  patterns: ["*://vm.corp/*"],
+  titlePrefix: "[PROD] ",
+  faviconMode: "tinted",
+  faviconColor: "#c62828",
+  faviconLetters: "PR",
+  rules: [],
+  ...over,
+});
+
+describe("faviconPlan", () => {
+  it("keeps the site icon in original mode", () => {
+    expect(faviconPlan(profile({ faviconMode: "original" }))).toEqual({ kind: "keep" });
+  });
+
+  it("asks for a tint in tinted mode", () => {
+    expect(faviconPlan(profile({ faviconMode: "tinted" }))).toEqual({ kind: "tint", color: "#c62828" });
+  });
+
+  it("asks for initials in initials mode", () => {
+    expect(faviconPlan(profile({ faviconMode: "initials" }))).toEqual({
+      kind: "initials",
+      letters: "PR",
+      color: "#c62828",
+    });
+  });
+
+  it("keeps the site icon when the color is unusable", () => {
+    expect(faviconPlan(profile({ faviconMode: "tinted", faviconColor: "red" }))).toEqual({ kind: "keep" });
+    expect(faviconPlan(profile({ faviconMode: "initials", faviconColor: "" }))).toEqual({ kind: "keep" });
+  });
+
+  it("keeps the site icon when initials would render nothing", () => {
+    expect(faviconPlan(profile({ faviconMode: "initials", faviconLetters: "   " }))).toEqual({ kind: "keep" });
   });
 });

@@ -7,16 +7,16 @@ import { SETTINGS_KEY } from "../storage/settingsRepo";
 const app = document.getElementById("app")!;
 
 const TEXT_FIELDS: Array<{ key: keyof Profile; label: string }> = [
-  { key: "name", label: "Имя профиля" },
-  { key: "titlePrefix", label: "Префикс заголовка вкладки" },
-  { key: "faviconLetters", label: "Буквы на favicon (1–2)" },
+  { key: "name", label: "Profile name" },
+  { key: "titlePrefix", label: "Tab prefix" },
+  { key: "faviconLetters", label: "Favicon letters (1–2)" },
 ];
 
 const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
-  { key: "faviconBackground", label: "Фон favicon" },
+  { key: "faviconColor", label: "Favicon color" },
 ];
 
-let settings: Settings = { version: 2, profiles: [] };
+let settings: Settings = { version: 3, profiles: [] };
 
 // Cards the user has typed into since the last render(). The storage listener below,
 // and the add/delete handlers in render(), all refuse to rebuild while this is

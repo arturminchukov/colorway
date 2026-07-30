@@ -69,7 +69,7 @@ function apply(profile: Profile | null): void {
     return;
   }
 
-  favicon.set(buildFaviconDataUrl(profile.faviconLetters, profile.faviconBackground));
+  favicon.set(buildFaviconDataUrl(profile.faviconLetters, profile.faviconColor));
   title.set(profile.titlePrefix);
 }
 

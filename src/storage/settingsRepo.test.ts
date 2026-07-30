@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../core/profile";
+import { DEFAULT_SETTINGS, type Profile } from "../core/profile";
 import { createSettingsRepo, SETTINGS_KEY, type StorageArea } from "./settingsRepo";
 
 function fakeArea(initial: Record<string, unknown> = {}): StorageArea {
@@ -14,14 +14,15 @@ function fakeArea(initial: Record<string, unknown> = {}): StorageArea {
   };
 }
 
-const profile = {
+const profile: Profile = {
   id: "a",
   name: "PROD",
   enabled: true,
   patterns: ["*://vm.corp/*"],
   titlePrefix: "[PROD] ",
+  faviconMode: "tinted",
+  faviconColor: "#c62828",
   faviconLetters: "PR",
-  faviconBackground: "#c62828",
   rules: [{ id: "r1", selector: ".vm-header", background: "#c62828", text: null }],
 };
 
@@ -34,7 +35,7 @@ describe("createSettingsRepo", () => {
   it("round-trips settings", async () => {
     const repo = createSettingsRepo(fakeArea());
     const settings = {
-      version: 2 as const,
+      version: 3 as const,
       profiles: [profile],
     };
     await repo.save(settings);
@@ -42,7 +43,7 @@ describe("createSettingsRepo", () => {
   });
 
   it("falls back to defaults when stored data has the wrong shape", async () => {
-    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: "nope" } }));
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: "nope" } }));
     expect(await repo.load()).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -65,8 +66,9 @@ describe("createSettingsRepo", () => {
       enabled: true,
       patterns: [],
       titlePrefix: "",
+      faviconMode: "tinted",
+      faviconColor: "#000000",
       faviconLetters: "PO",
-      faviconBackground: "#000000",
       rules: [],
     });
 
@@ -79,26 +81,32 @@ describe("createSettingsRepo", () => {
     const repo = createSettingsRepo(
       fakeArea({
         [SETTINGS_KEY]: {
-          version: 2,
+          version: 3,
           profiles: [validProfile, 123, {}, { ...validProfile, patterns: "not-an-array" }],
         },
       }),
     );
 
-    expect(await repo.load()).toEqual({ version: 2, profiles: [validProfile] });
+    expect(await repo.load()).toEqual({ version: 3, profiles: [validProfile] });
   });
 
   it("falls back to empty profiles when every stored profile is malformed", async () => {
     const repo = createSettingsRepo(
-      fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: [123, {}, "nope"] } }),
+      fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: [123, {}, "nope"] } }),
     );
 
-    expect(await repo.load()).toEqual({ version: 2, profiles: [] });
+    expect(await repo.load()).toEqual({ version: 3, profiles: [] });
   });
 
   it("drops a profile whose rules are malformed", async () => {
     const broken = { ...profile, rules: [{ id: "r1", selector: 42, background: null, text: null }] };
-    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 2, profiles: [broken] } }));
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: [broken] } }));
+    expect((await repo.load()).profiles).toEqual([]);
+  });
+
+  it("drops a profile whose favicon mode is not one of the three", async () => {
+    const broken = { ...profile, faviconMode: "rainbow" };
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: [broken] } }));
     expect((await repo.load()).profiles).toEqual([]);
   });
 });

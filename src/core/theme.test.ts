@@ -8,8 +8,9 @@ const profile = (rules: Profile["rules"]): Profile => ({
   enabled: true,
   patterns: ["*://vm.corp/*"],
   titlePrefix: "[PROD] ",
+  faviconMode: "tinted",
+  faviconColor: "#c62828",
   faviconLetters: "PR",
-  faviconBackground: "#c62828",
   rules,
 });
 

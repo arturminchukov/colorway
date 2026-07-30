@@ -1,5 +1,7 @@
 import { pickProfile } from "./matcher";
 
+export type FaviconMode = "original" | "tinted" | "initials";
+
 export type ColorRule = {
   id: string;
   /** CSS selector, either picked on the page or edited by hand. */
@@ -15,19 +17,22 @@ export type Profile = {
   enabled: boolean;
   /** Browser match patterns, e.g. "*://vm-prod.corp/*". */
   patterns: string[];
+  /** Shown next to the icon in the tab strip. */
   titlePrefix: string;
-  /** One or two characters drawn on the generated favicon. */
+  faviconMode: FaviconMode;
+  /** Tint color in "tinted" mode, background of the letters in "initials" mode. */
+  faviconColor: string;
+  /** Used in "initials" mode only. */
   faviconLetters: string;
-  faviconBackground: string;
   rules: ColorRule[];
 };
 
 export type Settings = {
-  version: 2;
+  version: 3;
   profiles: Profile[];
 };
 
-export const DEFAULT_SETTINGS: Settings = { version: 2, profiles: [] };
+export const DEFAULT_SETTINGS: Settings = { version: 3, profiles: [] };
 
 function lettersFrom(name: string): string {
   const alphanumeric = name.replace(/[^a-z0-9]/gi, "");
@@ -38,12 +43,15 @@ export function createProfile(name: string): Profile {
   const trimmed = name.trim();
   return {
     id: crypto.randomUUID(),
-    name: trimmed || "сайт",
+    name: trimmed || "site",
     enabled: true,
     patterns: [],
     titlePrefix: trimmed ? `[${trimmed}] ` : "",
+    // Tinting keeps the site recognisable, so it is the better default; it falls back
+    // to initials by itself when the icon cannot be recoloured.
+    faviconMode: "tinted",
+    faviconColor: "#3f51b5",
     faviconLetters: lettersFrom(trimmed),
-    faviconBackground: "#3f51b5",
     rules: [],
   };
 }

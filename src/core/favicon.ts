@@ -1,3 +1,4 @@
+import type { Profile } from "./profile";
 import { contrastText, isValidColor } from "./theme";
 
 function escapeXml(value: string): string {
@@ -45,4 +46,25 @@ export function buildFaviconDataUrl(letters: string, background: string): string
     `font-size="${fontSize}" font-weight="700" fill="${foreground}">${escapeXml(text)}</text>` +
     `</svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+export type FaviconPlan =
+  | { kind: "keep" }
+  | { kind: "tint"; color: string }
+  | { kind: "initials"; letters: string; color: string };
+
+/**
+ * What icon to build for this profile. The content script carries the plan out but
+ * does not decide it. "keep" wins whenever the alternative would be a broken icon:
+ * not touching the site's own icon beats replacing it with something unusable.
+ */
+export function faviconPlan(profile: Profile): FaviconPlan {
+  if (profile.faviconMode === "original") return { kind: "keep" };
+  if (!isValidColor(profile.faviconColor)) return { kind: "keep" };
+  if (profile.faviconMode === "tinted") return { kind: "tint", color: profile.faviconColor };
+
+  // Reuse the generator itself as the check: it already knows which letter inputs
+  // render to nothing, and duplicating that rule here would let the two drift.
+  if (buildFaviconDataUrl(profile.faviconLetters, profile.faviconColor) === null) return { kind: "keep" };
+  return { kind: "initials", letters: profile.faviconLetters, color: profile.faviconColor };
 }
