@@ -97,6 +97,16 @@ function pickedListener(): (message: unknown, sender?: FakeSender) => undefined 
   return runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown, sender?: FakeSender) => undefined;
 }
 
+/**
+ * runtime.onMessage's listener registered by the panel for panelFrame.ts's close
+ * handshake. Registered second, after the picked-message listener above — both live
+ * on the same mocked addListener spy, so index rather than a lookup by behavior is
+ * what tells them apart.
+ */
+function flushListener(): (message: unknown) => Promise<undefined> | undefined {
+  return runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown) => Promise<undefined> | undefined;
+}
+
 /** The rules section's "+ Add rule" button. */
 function addRuleButton(): HTMLButtonElement {
   return getApp().querySelector<HTMLButtonElement>("button.primary")!;
@@ -503,6 +513,77 @@ describe("panel: flushing a pending save on pagehide", () => {
   });
 });
 
+describe("panel: answering panelFrame.ts's close handshake", () => {
+  it("flushes a pending save immediately and resolves the request only once the write has settled", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Nothing saved yet — well within the 300ms debounce, exactly the window the
+    // real close handshake races against.
+    expect(save).not.toHaveBeenCalled();
+
+    // Held open deliberately, like the pagehide "in flight" test above: proves the
+    // request does not resolve merely because the save was started, only once it
+    // has actually settled.
+    const write = deferred<undefined>();
+    save.mockImplementationOnce(() => write.promise);
+
+    let settled = false;
+    const answered = flushListener()({ type: "color-vmui:flush", tabId: 1 })!.then(() => {
+      settled = true;
+    });
+
+    // The flush must start the save immediately, ahead of the debounce timer.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0][0] as Settings).profiles[0].titlePrefix).toBe("[QA] ");
+    expect(settled).toBe(false);
+
+    write.resolve(undefined);
+    await answered;
+    expect(settled).toBe(true);
+
+    // The original debounce timer must have been cancelled by the flush: letting the
+    // 300ms it would have fired at elapse must not produce a second save.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a flush request for a different tab, leaving its own pending save untouched", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // The listener never answers a message about another tab — it must return
+    // undefined synchronously, same as every other message-type/tab-id mismatch in
+    // this file, rather than claiming the response channel.
+    const result = flushListener()({ type: "color-vmui:flush", tabId: 2 });
+    expect(result).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(save).not.toHaveBeenCalled();
+
+    // The window's own debounce timer was never touched by the mismatched request.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves immediately when nothing is pending", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    const result = await flushListener()({ type: "color-vmui:flush", tabId: 1 });
+    expect(result).toBeUndefined();
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
 describe("panel: the favicon section stays open across a settled edit", () => {
   it("does not collapse when picking a mode re-renders the panel", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
@@ -802,6 +883,36 @@ describe("panel: adding a rule via the picker", () => {
     expect(result).toBeUndefined();
     expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
   });
+
+  it("ignores a pick that ran in a different tab, without saving or rebuilding #app", async () => {
+    // loadModule() pins this window to tab 1 (?tabId=1). With the window also open on
+    // another tab (the extension's whole reason to exist), a pick that ran in tab 2
+    // must not touch this window's settings at all — see Critical 2 in the review:
+    // runtime.sendMessage broadcasts the picker's result to every open window, not
+    // just the one whose tab it actually ran in.
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    vi.useFakeTimers();
+    const markerBefore = getApp().firstElementChild;
+
+    const result = pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 2, url: "https://other.example" } },
+    );
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The listener never answers back, no matter which tab the message is about.
+    expect(result).toBeUndefined();
+    // No rule created on this window's own profile...
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
+    // ...#app was never rebuilt (same top element throughout)...
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    // ...and nothing was ever saved, even after the debounce window a real commit
+    // would have used.
+    expect(save).not.toHaveBeenCalled();
+  });
 });
 
 describe("panel: pick error survives a plain re-render of its own tab", () => {
@@ -954,7 +1065,7 @@ describe("panel: resolving its own tab from the tabId query parameter", () => {
     // Without the guard, currentTab() would call browser.tabs.get(NaN) and render()
     // would either throw or hang on a rejected promise instead of showing this note.
     expect(tabsGet).not.toHaveBeenCalled();
-    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
+    expect(getApp().textContent).toContain("Nothing to work with here. Reload the page and click the toolbar icon again.");
   });
 
   it("renders the empty state instead of throwing when the tabId parameter is not a number", async () => {
@@ -967,7 +1078,7 @@ describe("panel: resolving its own tab from the tabId query parameter", () => {
     await Promise.resolve();
 
     expect(tabsGet).not.toHaveBeenCalled();
-    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
+    expect(getApp().textContent).toContain("Nothing to work with here. Reload the page and click the toolbar icon again.");
   });
 
   it("renders the empty state instead of throwing when the tab no longer exists", async () => {
@@ -980,7 +1091,7 @@ describe("panel: resolving its own tab from the tabId query parameter", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
+    expect(getApp().textContent).toContain("Nothing to work with here. Reload the page and click the toolbar icon again.");
   });
 });
 

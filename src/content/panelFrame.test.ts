@@ -28,14 +28,30 @@ async function openPanel(): Promise<void> {
   await import("./panelFrame");
 }
 
-afterEach(() => {
-  window.__colorVmuiPanelStop?.();
+/** Lets a test control exactly when a given `sendMessage` call resolves. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+afterEach(async () => {
+  // Awaited: stop() now runs an async close handshake (see the "close handshake"
+  // describe block below) before it removes the container, so a fire-and-forget call
+  // here could leave a stale window (and window.__colorVmuiPanelStop) behind for the
+  // next test, racing whatever that test's own sendMessage mock resolves to. The
+  // explicit querySelectorAll cleanup right below is a belt for whatever this leaves
+  // in the DOM regardless.
+  await window.__colorVmuiPanelStop?.();
   document.querySelectorAll(`[${PICKER_UI_ATTR}]`).forEach((node) => node.remove());
   sendMessage.mockReset();
   getURL.mockReset().mockImplementation((path: string) => `chrome-extension://abc/${path}`);
   load.mockReset();
   save.mockReset().mockResolvedValue(undefined);
   vi.resetModules();
+  vi.useRealTimers();
   setViewport(1200, 800);
 });
 
@@ -65,7 +81,10 @@ describe("panelFrame", () => {
     vi.resetModules();
     await openPanel();
 
-    expect(panel()).toBeNull();
+    // stop() now runs an async close handshake before removing the container (see
+    // the "close handshake" tests below), so the removal is no longer synchronous
+    // with the second toggle() call above.
+    await vi.waitFor(() => expect(panel()).toBeNull());
     expect(window.__colorVmuiPanelStop).toBeUndefined();
   });
 
@@ -159,7 +178,121 @@ describe("panelFrame", () => {
     const closeButton = host.shadowRoot!.querySelector<HTMLElement>(".close")!;
     closeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    expect(panel()).toBeNull();
+    // stop() now awaits the close handshake's answer before removing the container
+    // (see the describe block below) — sendMessage resolves promptly here, but not
+    // synchronously with the click.
+    await vi.waitFor(() => expect(panel()).toBeNull());
     expect(window.__colorVmuiPanelStop).toBeUndefined();
+  });
+});
+
+describe("panelFrame: closing waits for the panel's flush handshake", () => {
+  it("keeps the container in place until the panel answers, then removes it", async () => {
+    load.mockResolvedValue(null);
+    const flush = deferred<undefined>();
+    sendMessage.mockImplementation((message: unknown) => {
+      const type = (message as { type?: string })?.type;
+      if (type === "color-vmui:tab-id") return Promise.resolve(7);
+      if (type === "color-vmui:flush") return flush.promise;
+      return Promise.resolve(undefined);
+    });
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+    // Wait for the tab id round trip so the flush request below carries it, matching
+    // what a real close (after the iframe has loaded) would send.
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:tab-id" }));
+
+    const host = panel()!;
+    const closeButton = host.shadowRoot!.querySelector<HTMLElement>(".close")!;
+    closeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // The handshake is in flight: the container must still be present, and the
+    // request must carry the tab id this window resolved for itself.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:flush", tabId: 7 });
+    expect(panel()).not.toBeNull();
+
+    flush.resolve(undefined);
+    await vi.waitFor(() => expect(panel()).toBeNull());
+  });
+
+  it("closes anyway once the timeout elapses when the panel never answers", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockImplementation((message: unknown) => {
+      const type = (message as { type?: string })?.type;
+      if (type === "color-vmui:tab-id") return Promise.resolve(7);
+      // The flush request never resolves — an unresponsive or pre-handshake panel.
+      return new Promise<undefined>(() => {});
+    });
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:tab-id" }));
+
+    vi.useFakeTimers();
+    const host = panel()!;
+    const closeButton = host.shadowRoot!.querySelector<HTMLElement>(".close")!;
+    closeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // Short of the timeout: still open, not wedged shut, but not closed either.
+    await vi.advanceTimersByTimeAsync(499);
+    expect(panel()).not.toBeNull();
+
+    // The timeout elapses: the window closes anyway rather than waiting forever.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(panel()).toBeNull();
+  });
+});
+
+describe("panelFrame: a tab id that never resolves", () => {
+  it("still loads the panel page, without a tabId parameter", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockRejectedValue(new Error("Extension context invalidated."));
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+    const host = panel()!;
+    const iframe = host.shadowRoot!.querySelector("iframe")!;
+    // Without the fix, iframe.src is never set (stays "", i.e. about:blank forever)
+    // because requestTabId() resolving to undefined short-circuits before ever
+    // assigning it.
+    await vi.waitFor(() => expect(iframe.src).toBe("chrome-extension://abc/panel.html"));
+  });
+});
+
+describe("panelFrame: the iframe advertises what it is", () => {
+  it("has a non-empty title attribute", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockResolvedValue(1);
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+    const host = panel()!;
+    const iframe = host.shadowRoot!.querySelector("iframe")!;
+    expect(iframe.title.length).toBeGreaterThan(0);
+  });
+});
+
+describe("panelFrame: the window gets a definite height", () => {
+  it("gives .panel a height, not just a max-height, so the iframe has a real box to fill", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockResolvedValue(1);
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+
+    const host = panel()!;
+    const styleText = host.shadowRoot!.querySelector("style")!.textContent!;
+    const panelRule = styleText.match(/\.panel\s*\{[^}]*\}/)?.[0];
+    expect(panelRule).toBeDefined();
+    // An auto-height flex column (max-height alone, no height) never gives its
+    // iframe child a real box to grow into — see Critical 1 in the review. A
+    // definite height is what makes `iframe { flex: 1; min-height: 0; }` actually
+    // fill the remaining space.
+    expect(panelRule).toMatch(/height:\s*min\(70vh,\s*560px\)/);
   });
 });

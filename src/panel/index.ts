@@ -55,6 +55,15 @@ let pendingSave: Settings | null = null;
 // applied once the pending edit settles instead of being silently dropped.
 let pendingExternalUpdate = false;
 
+// The promise of the most recently started settingsRepo.save() call, whether it was
+// kicked off by commit()'s debounce timer firing or by a flush (pagehide, or the
+// close handshake below). Never reset to null once set: awaiting an already-settled
+// promise again is harmless, and the alternative — tracking "is one currently in
+// flight" as a separate boolean — would just be the same information twice. Exists
+// solely so flushAndAwaitSave() below has something to wait on when a save is
+// already running rather than merely scheduled.
+let pendingSaveWrite: Promise<void> | null = null;
+
 // Bumped at the start of every render() call and captured locally as `generation`.
 // render() now awaits twice (currentTab(), tabStatus()), and tabs.onUpdated fires
 // render() repeatedly and unconditionally — several times during a single page load.
@@ -140,7 +149,7 @@ function sendPreview(next: Settings, tab: TabTarget): void {
  * debounce timer (commit(), below) and the pagehide flush (flushPendingSave()), so
  * both settle `pendingSave`/`pendingExternalUpdate` the same way.
  */
-function persistCommit(next: Settings): void {
+function persistCommit(next: Settings): Promise<void> {
   const settleSave = (): void => {
     // A newer commit() may have replaced pendingSave with its own, still-unsaved
     // snapshot and scheduled its own save (clearTimeout only cancels a pending
@@ -167,7 +176,9 @@ function persistCommit(next: Settings): void {
   // consumed again. There is no error surface in this panel today; surfacing a
   // failed save to the user is a separate piece of work, so the failure itself
   // is deliberately swallowed here beyond clearing the guard.
-  void settingsRepo.save(next).then(settleSave, settleSave);
+  const write = settingsRepo.save(next).then(settleSave, settleSave);
+  pendingSaveWrite = write;
+  return write;
 }
 
 /**
@@ -203,7 +214,7 @@ function commit(next: Settings, tab: TabTarget): void {
     // flushPendingSave() below tell "a save is still scheduled" apart from "a save is
     // already in flight", so it never fires a second save for the same commit.
     saveTimer = undefined;
-    persistCommit(next);
+    void persistCommit(next);
   }, SAVE_DELAY_MS);
 }
 
@@ -227,18 +238,36 @@ function commit(next: Settings, tab: TabTarget): void {
  * timer has fired, persistCommit() is already running and must not be started twice
  * for the same snapshot.
  *
- * Best-effort: the browser can still kill the page before this async save settles, so
- * this reduces the window where a stale preview survives — it does not close it
- * entirely.
+ * This is now a belt, not the primary defense: panelFrame.ts's stop() runs an
+ * explicit flush handshake (see the color-vmui:flush listener below) before it ever
+ * removes the container, which covers the routine close-button/toolbar-icon path.
+ * `pagehide` stays wired for the case that handshake cannot cover at all — the page
+ * navigating away or the browser exiting out from under this window entirely — and
+ * remains best-effort there: the browser can still kill the page before this async
+ * save settles.
  */
 function flushPendingSave(): void {
   if (saveTimer === undefined || pendingSave === null) return;
   clearTimeout(saveTimer);
   saveTimer = undefined;
-  persistCommit(pendingSave);
+  void persistCommit(pendingSave);
 }
 
 window.addEventListener("pagehide", flushPendingSave);
+
+/**
+ * Answers panelFrame.ts's close handshake: flushes a pending save exactly like
+ * flushPendingSave() above, then waits for the write to actually settle before
+ * resolving — including one already in flight because its debounce timer already
+ * fired before the close request arrived (flushPendingSave() itself is a no-op in
+ * that case; pendingSaveWrite already holds that in-flight write's promise). Nothing
+ * left to wait for (no edit ever pending) resolves immediately, since
+ * pendingSaveWrite already holds an earlier, already-settled promise or is still null.
+ */
+async function flushAndAwaitSave(): Promise<void> {
+  flushPendingSave();
+  if (pendingSaveWrite) await pendingSaveWrite;
+}
 
 function commitAndRender(next: Settings, tab: TabTarget): void {
   commit(next, tab);
@@ -317,7 +346,14 @@ async function render(): Promise<void> {
   if (!tab.url || !/^https?:/.test(tab.url)) {
     const note = document.createElement("div");
     note.className = "section muted";
-    note.textContent = "Click the toolbar icon on a web page to work with it.";
+    // Covers two cases: a non-http(s) page (the extension has nothing to color
+    // here), and a tab id that never resolved (currentTab() degrades to this same
+    // empty result — e.g. requestTabId() in panelFrame.ts failed because an
+    // extension reload or update invalidated the background's context, see
+    // panelFrame.ts's own comment). Either way this window is already open — the
+    // toolbar icon that opened it is not the fix — so a reload is what the note
+    // points at instead.
+    note.textContent = "Nothing to work with here. Reload the page and click the toolbar icon again.";
     app.append(note);
     return;
   }
@@ -482,6 +518,13 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   const tabUrl = sender.tab?.url;
   if (tabId === undefined || !tabUrl) return undefined;
 
+  // runtime.sendMessage broadcasts to every open window, not just this one: with the
+  // window open on two tabs at once — the extension's whole reason to exist — a pick
+  // in tab B must not touch tab A's settings. Ignored before any of the work below
+  // (addRuleForUrl, commitAndRender) ever runs, so an unrelated tab's pick can never
+  // race this window's own edits into a save or a rebuilt #app.
+  if (tabId !== ownTabId) return undefined;
+
   const next = addRuleForUrl(settings, tabUrl, createRule(picked.selector));
   // Open the rule that was just created: its colors are the reason the user picked.
   // Looked up the same way addRuleForUrl chose its target, so this always finds the
@@ -495,6 +538,24 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   // consistent with every other button-initiated change in this file.
   commitAndRender(next, { id: tabId, url: tabUrl });
   return undefined;
+});
+
+type FlushRequest = { type: "color-vmui:flush"; tabId: number };
+
+// panelFrame.ts's close handshake (see its requestFlush()/stop()): sent once, right
+// before it removes the container, so a pending save gets a chance to land instead
+// of being silently dropped with the frame. Scoped to ownTabId exactly like the
+// picked-message listener above — runtime.sendMessage broadcasts to every open
+// window, and only the one for the tab actually closing must act on it. Anything
+// else (wrong type, another window's tab id) is ignored, returning undefined
+// synchronously so this never starves whichever listener a message was actually
+// meant for.
+browser.runtime.onMessage.addListener((message: unknown): Promise<undefined> | undefined => {
+  const request = message as FlushRequest;
+  if (request?.type !== "color-vmui:flush") return undefined;
+  if (request.tabId !== ownTabId) return undefined;
+
+  return flushAndAwaitSave().then(() => undefined);
 });
 
 async function refreshFromStorage(): Promise<void> {

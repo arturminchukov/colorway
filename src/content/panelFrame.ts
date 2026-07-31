@@ -31,7 +31,7 @@ const TEMPLATE = `
 <style>
   .panel {
     width: ${PANEL_WIDTH}px;
-    max-height: 70vh;
+    height: min(70vh, 560px);
     display: flex;
     flex-direction: column;
     background: #ffffff;
@@ -96,7 +96,7 @@ const TEMPLATE = `
     <span class="name">color-vmui</span>
     <button type="button" class="close" aria-label="Close">×</button>
   </div>
-  <iframe></iframe>
+  <iframe title="color-vmui"></iframe>
 </div>
 `;
 
@@ -111,6 +111,30 @@ async function requestTabId(): Promise<number | undefined> {
   } catch {
     return undefined;
   }
+}
+
+// How long the close handshake below waits for the panel to answer a flush request
+// before giving up and closing anyway. Generous enough for a real (already-scheduled
+// or just-started) settingsRepo.save() to land, short enough that a user clicking ×
+// never perceives it as the window being stuck.
+const FLUSH_TIMEOUT_MS = 500;
+
+/**
+ * Asks the panel (if a tab id was ever resolved for it — see requestTabId() above and
+ * Important 4's fix below) to flush any pending save, and waits briefly for its
+ * answer. Races the reply against a timeout rather than awaiting it unconditionally:
+ * the panel may be gone already, mid-navigation, or an older build that has never
+ * heard of this message, and none of those must be able to wedge the window shut.
+ * A rejected sendMessage (no listener at all) is treated the same as a timeout —
+ * both just mean there is nothing to wait for.
+ */
+async function requestFlush(tabId: number | undefined): Promise<void> {
+  if (tabId === undefined) return;
+  const message = { type: "color-vmui:flush", tabId };
+  await Promise.race([
+    browser.runtime.sendMessage(message).catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
+  ]);
 }
 
 function viewport(): Viewport {
@@ -128,7 +152,7 @@ async function resolvePosition(): Promise<PanelPosition> {
  * spot after first paint. The iframe's src, which needs the tab id from a separate
  * round trip to the background, is filled in slightly later and does not hold this up.
  */
-async function open(): Promise<() => void> {
+async function open(): Promise<() => Promise<void>> {
   const position = await resolvePosition();
 
   const container = document.createElement("div");
@@ -145,6 +169,11 @@ async function open(): Promise<() => void> {
 
   let current = position;
   let dragStart: { pointerX: number; pointerY: number; left: number; top: number } | null = null;
+  // The tab id requestTabId() resolves below, kept for stop()'s own close handshake.
+  // Undefined until that round trip settles, and stays undefined for good if it
+  // never resolves one (see Important 4's fix to the iframe.src assignment below) —
+  // requestFlush() already treats an undefined tab id as "nothing to ask".
+  let resolvedTabId: number | undefined;
 
   function setPosition(next: PanelPosition): void {
     current = next;
@@ -175,9 +204,20 @@ async function open(): Promise<() => void> {
     void panelPositionRepo.save(clamped);
   }
 
-  function stop(): void {
+  /**
+   * Closing is now an explicit handshake rather than relying on the panel's own
+   * `pagehide` (see the review finding this fixes): `container.remove()` only
+   * detaches the iframe, it does not navigate or close a top-level document, so
+   * whether that fires `pagehide` at all is implementation-dependent, and even where
+   * it does, the panel's settingsRepo.save() is async while this removal is
+   * synchronous — the save's continuation might never run. Asking first and
+   * removing the container only after that settles (or times out, see
+   * requestFlush()) closes that window instead of hoping pagehide covers it.
+   */
+  async function stop(): Promise<void> {
     document.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerup", onPointerUp);
+    await requestFlush(resolvedTabId);
     container.remove();
     window.__colorVmuiPanelStop = undefined;
   }
@@ -190,8 +230,15 @@ async function open(): Promise<() => void> {
   document.documentElement.append(container);
 
   void requestTabId().then((tabId) => {
-    if (tabId === undefined) return;
-    iframe.src = `${browser.runtime.getURL("panel.html")}?tabId=${tabId}`;
+    resolvedTabId = tabId;
+    // Always load the panel, even without a usable tab id (the background could not
+    // be reached — an extension reload or update invalidated the context): a bare
+    // `panel.html` still renders, and its own "nothing to work with" empty state
+    // explains itself instead of leaving the window on `about:blank` forever.
+    iframe.src =
+      tabId === undefined
+        ? browser.runtime.getURL("panel.html")
+        : `${browser.runtime.getURL("panel.html")}?tabId=${tabId}`;
   });
 
   return stop;
