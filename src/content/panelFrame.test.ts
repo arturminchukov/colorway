@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PICKER_UI_ATTR } from "./picker/selectorBuilder";
 
 const sendMessage = vi.fn();
+const addMessageListener = vi.fn();
+const removeMessageListener = vi.fn();
 const getURL = vi.fn((path: string) => `chrome-extension://abc/${path}`);
 const load = vi.fn();
 const save = vi.fn().mockResolvedValue(undefined);
@@ -11,7 +13,13 @@ const save = vi.fn().mockResolvedValue(undefined);
 // both lets the test drive storage and messaging without a real browser, the same
 // way content/index.test.ts and picker/index.test.ts stub this module.
 vi.mock("../shared/browser", () => ({
-  browser: { runtime: { sendMessage, getURL } },
+  browser: {
+    runtime: {
+      sendMessage,
+      getURL,
+      onMessage: { addListener: addMessageListener, removeListener: removeMessageListener },
+    },
+  },
   panelPositionRepo: { load, save },
 }));
 
@@ -294,5 +302,46 @@ describe("panelFrame: the window gets a definite height", () => {
     // definite height is what makes `iframe { flex: 1; min-height: 0; }` actually
     // fill the remaining space.
     expect(panelRule).toMatch(/height:\s*min\(70vh,\s*560px\)/);
+  });
+});
+
+describe("panelFrame: dimming while the user picks", () => {
+  /** The picking-message listener the frame registered on runtime.onMessage. */
+  function pickingListener(): (message: unknown) => undefined {
+    return addMessageListener.mock.calls.at(-1)![0] as (message: unknown) => undefined;
+  }
+
+  it("fades the window and lets clicks through while its own tab is picking, then restores it", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockResolvedValue(7);
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+    // The tab id has to have resolved: the listener ignores anything it cannot match.
+    await vi.waitFor(() => expect(panel()!.shadowRoot!.querySelector("iframe")!.src).toContain("tabId=7"));
+
+    const host = panel()!;
+    pickingListener()({ type: "color-vmui:picking", tabId: 7, active: true });
+    expect(host.style.opacity).toBe("0.3");
+    // Not just faded: an opaque-to-clicks window would make the elements under it
+    // unpickable, which is the whole point of getting out of the way.
+    expect(host.style.pointerEvents).toBe("none");
+
+    pickingListener()({ type: "color-vmui:picking", tabId: 7, active: false });
+    expect(host.style.opacity).toBe("");
+    expect(host.style.pointerEvents).toBe("auto");
+  });
+
+  it("ignores a pick happening in another tab's window", async () => {
+    load.mockResolvedValue(null);
+    sendMessage.mockResolvedValue(7);
+
+    await openPanel();
+    await vi.waitFor(() => expect(panel()).not.toBeNull());
+    await vi.waitFor(() => expect(panel()!.shadowRoot!.querySelector("iframe")!.src).toContain("tabId=7"));
+
+    const host = panel()!;
+    pickingListener()({ type: "color-vmui:picking", tabId: 42, active: true });
+    expect(host.style.opacity).toBe("");
   });
 });

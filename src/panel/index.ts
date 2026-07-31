@@ -43,6 +43,12 @@ let pickError: string | null = null;
 // only displays pickError while this still matches the tab on screen.
 let pickErrorTabId: number | undefined = undefined;
 
+// The rule whose "Select element" button started the picker, and whose selector the
+// next picked message will fill. Null when no pick is in flight — a picked message
+// arriving then (the window was closed and reopened mid-pick, say) still creates a
+// rule of its own rather than being dropped, see the picked-message listener.
+let pickTargetRuleId: string | null = null;
+
 // Snapshot of the most recent commit() that has not yet been confirmed persisted:
 // non-null from the moment a save is scheduled until its settingsRepo.save() resolves.
 // Used to (a) stop the storage listener from re-rendering over an edit that is still
@@ -289,28 +295,51 @@ function failPick(message: string, tabId: number): void {
 }
 
 /**
+ * Tells panelFrame.ts to dim the window while the user picks, and to undim when the
+ * pick is over. The window is the frame's to style — its header and border live out
+ * there in the page, so dimming only this document would leave a bright frame around
+ * a faded panel. Carries the tab id because runtime.sendMessage reaches every open
+ * window: without it, picking in one tab would dim another tab's window too.
+ */
+function sendPicking(active: boolean, tabId: number): void {
+  void browser.runtime.sendMessage({ type: "color-vmui:picking", tabId, active }).catch(() => {});
+}
+
+/**
  * permissions.request() must be the first await after the click: the panel is an
  * extension page and this click is the user gesture, which Firefox insists on.
+ *
+ * `ruleId` is the rule whose selector this pick will fill. The rule already exists by
+ * now — "+ Add rule" creates it empty and its own "Select element" button is what
+ * lands here — so a pick edits a rule rather than conjuring one.
  */
-function startPicking(url: string, tabId: number | undefined): void {
+function startPicking(url: string, tabId: number | undefined, ruleId: string): void {
   if (tabId === undefined) return;
   pickError = null;
   pickErrorTabId = undefined;
+  pickTargetRuleId = ruleId;
 
   const origin = `*://${new URL(url).hostname}/*`;
   void browser.permissions
     .request({ origins: [origin] })
     .then(async (granted) => {
       if (!granted) {
+        pickTargetRuleId = null;
         failPick("Without access to this site the picker cannot run.", tabId);
         return;
       }
       const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
       if (started === false) {
+        pickTargetRuleId = null;
         failPick("The picker cannot run on this tab.", tabId);
+        return;
       }
+      // Only now is the page actually in picking mode; dimming any earlier would
+      // fade the window for a pick that never started.
+      sendPicking(true, tabId);
     })
     .catch((error: unknown) => {
+      pickTargetRuleId = null;
       failPick(`Could not start the picker: ${String(error)}`, tabId);
     });
 }
@@ -497,7 +526,16 @@ async function render(): Promise<void> {
           if (expandedRuleId === ruleId) expandedRuleId = null;
           commitAndRender(removeRule(settings, profile.id, ruleId), tab);
         },
-        onAdd: () => startPicking(tab.url!, tab.id),
+        onPick: (ruleId) => startPicking(tab.url!, tab.id, ruleId),
+        // The rule appears at once, empty and expanded, instead of only after an
+        // element has been picked: the user asked to add a rule, so a rule is what
+        // they get, with "Select element" inside it as the next step. Until it has a
+        // selector it simply never paints — the same state as any unusable selector.
+        onAdd: () => {
+          const rule = createRule("");
+          expandedRuleId = rule.id;
+          commitAndRender(updateProfile(settings, profile.id, { rules: [...profile.rules, rule] }), tab);
+        },
       }),
     );
 
@@ -575,7 +613,8 @@ type PickedMessage = { type: "color-vmui:picked"; selector: string };
 // whichever listener the message was actually meant for.
 browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.MessageSender): undefined => {
   const picked = message as PickedMessage;
-  if (picked?.type !== "color-vmui:picked") return undefined;
+  const cancelled = (message as { type?: string })?.type === "color-vmui:pick-cancelled";
+  if (picked?.type !== "color-vmui:picked" && !cancelled) return undefined;
 
   // sender.tab identifies the tab the picker actually ran in, synchronously and with
   // no async currentTab() round trip involved — a plain, direct fact about where the
@@ -593,20 +632,44 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   // race this window's own edits into a save or a rebuilt #app.
   if (tabId !== ownTabId) return undefined;
 
-  const next = addRuleForUrl(settings, tabUrl, createRule(picked.selector));
-  // Open the rule that was just created: its colors are the reason the user picked.
+  // The pick is over either way: undim before anything below can fail.
+  sendPicking(false, tabId);
+
+  // Escape: the picker stopped without reporting a selector, so the rule that was
+  // waiting for one simply keeps the selector it had. Nothing to write.
+  if (cancelled) {
+    pickTargetRuleId = null;
+    return undefined;
+  }
+
+  const target = currentProfileForUrl(tabUrl, settings.profiles);
+  const waiting = target?.rules.some((rule) => rule.id === pickTargetRuleId) ? pickTargetRuleId : null;
+  pickTargetRuleId = null;
+
+  // The normal path: the rule was created empty by "+ Add rule" and its own "Select
+  // element" button started this pick, so the selector lands in it. Falling back to
+  // creating a rule covers a pick whose rule is gone — the window was closed and
+  // reopened, or the rule deleted, mid-pick — because dropping the user's click on
+  // the floor after they went to the trouble of aiming it is worse than an extra rule.
+  const next =
+    waiting && target
+      ? updateRule(settings, target.id, waiting, { selector: picked.selector })
+      : addRuleForUrl(settings, tabUrl, createRule(picked.selector));
+
+  // Open the rule the selector landed in: its colors are the reason the user picked.
   // Looked up the same way addRuleForUrl chose its target, so this always finds the
   // profile the rule actually landed on.
   const profile = currentProfileForUrl(tabUrl, next.profiles);
-  expandedRuleId = profile?.rules.at(-1)?.id ?? null;
+  expandedRuleId = waiting ?? profile?.rules.at(-1)?.id ?? null;
   // A successful pick supersedes a failure message left over from an earlier attempt,
   // but only the one raised for this same tab — see pickErrorTabId above.
   if (pickErrorTabId === tabId) pickError = null;
-  // Adding a rule changes the list's structure, so it must show up immediately —
+  // The rule's selector (or the list itself) changed, so it must show up immediately —
   // consistent with every other button-initiated change in this file.
   commitAndRender(next, { id: tabId, url: tabUrl });
   return undefined;
 });
+
 
 type FlushRequest = { type: "color-vmui:flush"; tabId: number };
 

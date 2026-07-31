@@ -54,9 +54,11 @@ export function renderRulesSection(options: {
   /** Fires once an edit settles (change): writes and re-renders. */
   onPatchSettled(ruleId: string, patch: Partial<ColorRule>): void;
   onRemove(ruleId: string): void;
+  /** Hands the page over to the picker; whatever is clicked becomes this rule's selector. */
+  onPick(ruleId: string): void;
   onAdd(): void;
 }): HTMLElement {
-  const { profile, states, expandedId, onExpand, onPatch, onPatchSettled, onRemove, onAdd } = options;
+  const { profile, states, expandedId, onExpand, onPatch, onPatchSettled, onRemove, onPick, onAdd } = options;
 
   const section = document.createElement("div");
   section.className = "section";
@@ -118,7 +120,19 @@ export function renderRulesSection(options: {
     const selectorInput = textInput(rule.selector);
     selectorInput.addEventListener("input", () => onPatch(rule.id, { selector: selectorInput.value.trim() }));
     selectorInput.addEventListener("change", () => onPatchSettled(rule.id, { selector: selectorInput.value.trim() }));
-    editor.append(labelled("Selector", selectorInput));
+    const selectorRow = labelled("Selector", selectorInput);
+
+    // The rule exists before it has a selector, so picking is an action ON a rule
+    // rather than the way a rule comes into being: this button is what hands the
+    // page over to the picker and fills this rule's selector with what is clicked.
+    const pick = document.createElement("button");
+    pick.className = "pick";
+    pick.textContent = "Select element";
+    pick.title = "Pick this rule's element on the page";
+    pick.addEventListener("click", () => onPick(rule.id));
+    selectorRow.append(pick);
+
+    editor.append(selectorRow);
 
     const row2 = document.createElement("div");
     row2.className = "row";

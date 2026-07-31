@@ -112,6 +112,25 @@ function addRuleButton(): HTMLButtonElement {
   return getApp().querySelector<HTMLButtonElement>("button.primary")!;
 }
 
+/** The expanded rule's "Select element" button — what actually starts the picker. */
+function pickButton(): HTMLButtonElement {
+  return getApp().querySelector<HTMLButtonElement>("button.pick")!;
+}
+
+/**
+ * Adds a rule and presses its "Select element", the two clicks a pick now takes.
+ * Waits for the added rule's own debounced save to land before returning: that
+ * timer is a real one, and letting it outlive the test would fire it during a later
+ * test and add a stray call to the shared `save` mock.
+ */
+async function startPick(): Promise<void> {
+  addRuleButton().click();
+  await vi.waitFor(() => expect(pickButton()).not.toBeNull());
+  await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+  save.mockClear();
+  pickButton().click();
+}
+
 /**
  * The pagehide flush is wired via a plain `window.addEventListener`, not through the
  * mocked `browser` object, so it is not captured the way the other listeners above
@@ -169,6 +188,9 @@ beforeEach(() => {
   // sendPreview(), which calls `.catch()` on the return value and needs a real
   // Promise for that). Tests that care about a specific reply override this.
   tabsSendMessage.mockResolvedValue(undefined);
+  // The panel's dim/undim notice to panelFrame.ts goes through this and has `.catch()`
+  // called on the result, so it needs a real promise even where a test ignores it.
+  runtimeSendMessage.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -825,20 +847,90 @@ describe("panel: adding a rule via the picker", () => {
     expect(getApp().querySelector(".disclosure")).toBeNull();
   });
 
-  it("requests host permission and starts the picker when '+ Add rule' is clicked and permission is granted", async () => {
+  it("adds an empty rule expanded, without touching the picker", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile()));
+
+    addRuleButton().click();
+
+    // The rule the user asked for exists immediately, expanded, with its own way to
+    // fill the selector — rather than appearing only once an element was picked.
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
+    expect(getApp().querySelector('.editor input[type="text"]')).not.toBeNull();
+    expect(pickButton().textContent).toBe("Select element");
+    expect(permissionsRequest).not.toHaveBeenCalled();
+    expect(runtimeSendMessage).not.toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 });
+
+    // Let the added rule's debounced save land: a real timer left pending here would
+    // fire during a later test and add a stray call to the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+  });
+
+  it("requests host permission and starts the picker when 'Select element' is clicked", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(true);
     runtimeSendMessage.mockResolvedValue(true);
 
-    addRuleButton().click();
+    await startPick();
 
     await vi.waitFor(() =>
       expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
     );
     expect(permissionsRequest).toHaveBeenCalledWith({ origins: ["*://example.com/*"] });
+    // The window fades while the page is being picked on, and only once the picker
+    // really started.
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: true });
     expect(getApp().querySelector(".section.error")).toBeNull();
+  });
+
+  it("fills the waiting rule's selector instead of creating a second rule", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile()));
+
+    permissionsRequest.mockResolvedValue(true);
+    runtimeSendMessage.mockResolvedValue(true);
+    await startPick();
+    await vi.waitFor(() =>
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+    );
+
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".vm-header" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+
+    await vi.waitFor(() =>
+      expect(getApp().querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe(".vm-header"),
+    );
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
+    // And the window is undimmed again.
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: false });
+
+    // Flush the pick's debounced save: a real timer left pending here would fire
+    // during a later test and land a stray call on the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+  });
+
+  it("undims and leaves the rule alone when the picker reports it was cancelled", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile()));
+
+    permissionsRequest.mockResolvedValue(true);
+    runtimeSendMessage.mockResolvedValue(true);
+    await startPick();
+    await vi.waitFor(() =>
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+    );
+
+    pickedListener()({ type: "color-vmui:pick-cancelled" }, { tab: { id: 1, url: "https://example.com" } });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: false });
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
+    expect(getApp().querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe("");
   });
 
   it("surfaces an error and does not start the picker when the permission request is refused", async () => {
@@ -847,7 +939,7 @@ describe("panel: adding a rule via the picker", () => {
 
     permissionsRequest.mockResolvedValue(false);
 
-    addRuleButton().click();
+    await startPick();
 
     await vi.waitFor(() => expect(getApp().querySelector(".section.error")).not.toBeNull());
     expect(getApp().querySelector(".section.error")?.textContent).toBe(
@@ -863,7 +955,7 @@ describe("panel: adding a rule via the picker", () => {
     // First attempt: background reports it could not inject the picker.
     permissionsRequest.mockResolvedValue(true);
     runtimeSendMessage.mockResolvedValue(false);
-    addRuleButton().click();
+    await startPick();
     await vi.waitFor(() =>
       expect(getApp().querySelector(".section.error")?.textContent).toBe("The picker cannot run on this tab."),
     );
@@ -876,8 +968,16 @@ describe("panel: adding a rule via the picker", () => {
       { tab: { id: 1, url: "https://example.com" } },
     );
 
-    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
+    // The rule row already exists (startPick() added it), so wait for the pick to
+    // actually land in it rather than for the row to appear.
+    await vi.waitFor(() =>
+      expect(getApp().querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe(".picked"),
+    );
     expect(getApp().querySelector(".section.error")).toBeNull();
+
+    // Flush the pick's debounced save: a real timer left pending here would fire
+    // during a later test and land a stray call on the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
   });
 
   it("creates the rule and leaves it expanded when a color-vmui:picked message arrives", async () => {
@@ -897,6 +997,10 @@ describe("panel: adding a rule via the picker", () => {
     // with no extra click needed.
     const editorSelectorInput = getApp().querySelector<HTMLInputElement>('.editor input[type="text"]');
     expect(editorSelectorInput?.value).toBe(".picked");
+
+    // Flush the pick's debounced save: a real timer left pending here would fire
+    // during a later test and land a stray call on the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
   });
 
   it("leaves the picked rule expanded even when the matching profile is switched off", async () => {
@@ -913,6 +1017,10 @@ describe("panel: adding a rule via the picker", () => {
     await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
     const editorSelectorInput = getApp().querySelector<HTMLInputElement>('.editor input[type="text"]');
     expect(editorSelectorInput?.value).toBe(".picked");
+
+    // Flush the pick's debounced save: a real timer left pending here would fire
+    // during a later test and land a stray call on the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
   });
 
   it("ignores a message of another type and does not create a rule", async () => {
@@ -995,7 +1103,7 @@ describe("panel: pick error survives a plain re-render of its own tab", () => {
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(false);
-    addRuleButton().click();
+    await startPick();
     await vi.waitFor(() =>
       expect(getApp().querySelector(".section.error")?.textContent).toBe(
         "Without access to this site the picker cannot run.",

@@ -43,7 +43,12 @@ function start(): void {
   };
 
   const onKey = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") stop();
+    if (event.key !== "Escape") return;
+    stop();
+    // The panel dimmed its window when this pick started and has nothing else to
+    // learn that it ended: no selector is coming. Nobody listening means the window
+    // was closed mid-pick, which needs no undimming either.
+    void browser.runtime.sendMessage({ type: "color-vmui:pick-cancelled" }).catch(() => {});
   };
 
   function stop(): void {

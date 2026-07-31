@@ -214,9 +214,36 @@ async function open(): Promise<() => Promise<void>> {
    * removing the container only after that settles (or times out, see
    * requestFlush()) closes that window instead of hoping pagehide covers it.
    */
+  /**
+   * Fades the window and lets clicks through it while the user picks an element on
+   * the page. Both halves matter: the panel is in the way of what is being picked,
+   * and an opaque window that still swallowed clicks would make the elements under
+   * it unpickable. pointer-events is set with `important` because hardenStyle above
+   * pinned it that way against hostile page CSS; a plain assignment would lose to it.
+   */
+  function setPicking(active: boolean): void {
+    container.style.opacity = active ? "0.3" : "";
+    container.style.setProperty("pointer-events", active ? "none" : "auto", "important");
+  }
+
+  /**
+   * The panel (inside the iframe) reports when a pick starts and ends; the window's
+   * chrome lives out here, so dimming is this side's job. Scoped to this window's own
+   * tab: runtime.sendMessage reaches every open window, and a pick in another tab
+   * must not fade this one.
+   */
+  function onPickingMessage(message: unknown): undefined {
+    const picking = message as { type?: string; tabId?: number; active?: boolean };
+    if (picking?.type !== "color-vmui:picking") return undefined;
+    if (resolvedTabId === undefined || picking.tabId !== resolvedTabId) return undefined;
+    setPicking(picking.active === true);
+    return undefined;
+  }
+
   async function stop(): Promise<void> {
     document.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerup", onPointerUp);
+    browser.runtime.onMessage.removeListener(onPickingMessage);
     await requestFlush(resolvedTabId);
     container.remove();
     window.__colorVmuiPanelStop = undefined;
@@ -225,6 +252,7 @@ async function open(): Promise<() => Promise<void>> {
   header.addEventListener("pointerdown", onHeaderPointerDown);
   document.addEventListener("pointermove", onPointerMove);
   document.addEventListener("pointerup", onPointerUp);
+  browser.runtime.onMessage.addListener(onPickingMessage);
   closeButton.addEventListener("click", stop);
 
   document.documentElement.append(container);

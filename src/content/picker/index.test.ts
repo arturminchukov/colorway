@@ -51,8 +51,15 @@ describe("picker", () => {
 
     expect(document.querySelectorAll("[data-color-vmui-ui]")).toHaveLength(0);
     expect(window.__colorVmuiPickerStop).toBeUndefined();
+
+    // Cancelling is reported, so the panel can undim the window it faded when this
+    // pick started — nothing else would ever tell it the pick is over.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0][0]).toEqual({ type: "color-vmui:pick-cancelled" });
+
+    // Still stopped: a click after Escape reports no selector.
     document.querySelector("header")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it("never picks its own ui: hovering or clicking it neither moves the highlight nor reports a selector", async () => {

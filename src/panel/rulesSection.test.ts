@@ -16,6 +16,7 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
     onPatch: vi.fn(),
     onPatchSettled: vi.fn(),
     onRemove: vi.fn(),
+    onPick: vi.fn(),
     onAdd: vi.fn(),
     ...overrides,
   };
