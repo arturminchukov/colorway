@@ -976,6 +976,31 @@ describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
     // Drain the debounce so it does not leak into a later test.
     await vi.advanceTimersByTimeAsync(300);
   });
+
+  it("does not rebuild #app for an active tab in a different window", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const markerBefore = getApp().firstElementChild;
+    const input = prefixInput();
+
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // A different tab (id 42), active — but in ANOTHER window: the panel's own
+    // active tab (per loadModule()'s `{ active: true, currentWindow: true }` query)
+    // is id 1. `tabs.onUpdated` delivers this event globally regardless of window,
+    // so `tab.active` alone (true here) would wrongly let it through.
+    updatedListener()(42, { status: "loading" }, { active: true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("[QA] ");
+
+    await vi.advanceTimersByTimeAsync(300);
+  });
 });
 
 describe("sidepanel: overlapping renders", () => {

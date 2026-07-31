@@ -30,6 +30,12 @@ let expandedRuleId: string | null = null;
 // had just appeared.
 let faviconSectionExpanded = false;
 
+// The id of the tab the last completed render() showed, or undefined before the
+// first one. Lets the tabs.onUpdated listener below tell "the tab this panel is
+// showing" apart from an unrelated tab of the same `active: true` shape in another
+// window (see its own comment).
+let currentTabId: number | undefined;
+
 // Set when starting the picker fails: permission refused, or the background could
 // not inject it. Purely local UI state, like expandedRuleId above. Scoped to the tab
 // it was raised for via pickErrorTabId below, so render() only shows it while that
@@ -279,6 +285,7 @@ async function render(): Promise<void> {
   const generation = ++renderGeneration;
   const tab = await currentTab();
   if (generation !== renderGeneration) return; // superseded before touching the DOM
+  currentTabId = tab.id;
   app.replaceChildren();
 
   if (!tab.url || !/^https?:/.test(tab.url)) {
@@ -421,10 +428,15 @@ browser.tabs.onActivated.addListener(() => void render());
 // just the one on screen. Re-rendering unconditionally would rebuild #app (kicking
 // focus out of whatever the user is typing into) for activity in a completely
 // unrelated background tab, reintroducing from outside exactly what the commit/
-// commitAndRender split exists to prevent. `tab.active` scopes this back down to the
-// tab the panel is actually showing.
-browser.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => {
-  if (tab.active) void render();
+// commitAndRender split exists to prevent. `tab.active` alone is not enough to scope
+// this down: it means "active in ITS window", but the panel queries `{ active: true,
+// currentWindow: true }` (see currentTab() above) and each window has its own panel
+// instance, so a page loading in another window's foreground tab is `tab.active` too
+// and would still kick focus out of this panel. Comparing the event's tabId against
+// currentTabId (the id this panel's last render actually showed) identifies the
+// right tab without needing the "tabs" permission.
+browser.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
+  if (tab.active && tabId === currentTabId) void render();
 });
 
 type PickedMessage = { type: "color-vmui:picked"; selector: string };
