@@ -121,7 +121,14 @@ function persistCommit(next: Settings): void {
     if (pendingExternalUpdate) {
       pendingExternalUpdate = false;
       void refreshFromStorage();
+      return;
     }
+    // Nothing left pending: this save is what might have just made a rule start (or
+    // stop) painting, so the rule dots and the footer's count — read from the content
+    // script only inside render(), see tabStatus() — are now stale until something
+    // re-renders. Every render() that showed them ran before this save reached
+    // storage, so without this they would stay wrong indefinitely.
+    refreshStatusIfIdle();
   };
   // Clear the guard on rejection too (quota exceeded, extension context
   // invalidated, ...): if only the success path cleared it, a single failed save
@@ -131,6 +138,21 @@ function persistCommit(next: Settings): void {
   // failed save to the user is a separate piece of work, so the failure itself
   // is deliberately swallowed here beyond clearing the guard.
   void settingsRepo.save(next).then(settleSave, settleSave);
+}
+
+/**
+ * Re-renders to pick up fresh rule-dot / footer status from the content script, but
+ * only when nothing inside the panel has focus. A save settling is not itself a sign
+ * that editing has stopped — the user can easily still be in another field when an
+ * earlier commit's debounce fires — so re-rendering unconditionally here would
+ * rebuild #app and kick focus out from under them, reintroducing exactly what the
+ * commit()/commitAndRender() split exists to prevent. When a field does have focus,
+ * this simply does nothing; the next settle after focus moves on (or the next
+ * settled edit's own commitAndRender()) picks the status up instead.
+ */
+function refreshStatusIfIdle(): void {
+  if (document.activeElement && app.contains(document.activeElement)) return;
+  void render();
 }
 
 /**

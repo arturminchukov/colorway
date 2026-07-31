@@ -183,7 +183,6 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
     await loadModule(settingsWith(profile()));
 
     vi.useFakeTimers();
-    const markerBefore = getApp().firstElementChild;
     const input = prefixInput();
 
     // Simulates typing without blurring: 'input' only, so onPatch/commit() runs but
@@ -193,9 +192,18 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
 
     // Let the 300ms debounce flush, exactly as described in the review finding: no
     // `change` ever fired, but enough time passed that the save went through and
-    // `pendingSave` is back to null by the time the echo below arrives.
+    // `pendingSave` is back to null by the time the echo below arrives. The settle
+    // itself legitimately rebuilds #app once (see refreshStatusIfIdle() in index.ts,
+    // which picks up fresh rule-dot status now that something was actually saved) —
+    // that rebuild is not what this test is about, so the marker is captured after it,
+    // not before.
     await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
     expect(save).toHaveBeenCalledTimes(1);
+    // Captured after the settle-triggered refresh, not before: that rebuild replaces
+    // both the marker element and the input node with fresh ones.
+    const markerBefore = getApp().firstElementChild;
+    const inputAfterSettle = prefixInput();
 
     // The storage echo of that same committed value arrives (real writes trigger
     // storage.onChanged too, writer included) — this is the delayed echo from the
@@ -204,10 +212,10 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
     storageListener()({ settings: {} }, "local");
     await vi.advanceTimersByTimeAsync(0);
 
-    // #app must not have been rebuilt: same top element, same focused input node,
-    // still holding what the user typed.
+    // #app must not have been rebuilt again: same top element and input node as right
+    // after the settle-triggered refresh, still holding what the user typed.
     expect(getApp().firstElementChild).toBe(markerBefore);
-    expect(prefixInput()).toBe(input);
+    expect(prefixInput()).toBe(inputAfterSettle);
     expect(prefixInput().value).toBe("[QA] ");
   });
 
@@ -601,6 +609,71 @@ describe("sidepanel: rules section wiring", () => {
     await vi.advanceTimersByTimeAsync(300);
     const saved = save.mock.calls.at(-1)?.[0] as Settings;
     expect(saved.profiles[0].rules).toHaveLength(0);
+  });
+});
+
+describe("sidepanel: refreshing rule status once the panel's own save settles", () => {
+  it("turns a picked rule's dot from unknown to matched once the debounced save settles and the content script reports it", async () => {
+    // The status reply reflects whatever was last actually saved: empty before the
+    // debounced save fires (the content script has nothing new to report yet), and
+    // "matched" for every saved rule once it does — modeling the real content script
+    // picking up the storage write.
+    tabsSendMessage.mockImplementation((_tabId, message) => {
+      const type = (message as { type?: string })?.type;
+      if (type !== "color-vmui:status") return Promise.resolve({ profileName: "site", matches: [], faviconFellBack: false });
+      const savedRules = ((save.mock.calls.at(-1)?.[0] as Settings | undefined)?.profiles[0]?.rules ?? []) as { id: string }[];
+      return Promise.resolve({
+        profileName: "site",
+        matches: savedRules.map((rule) => ({ ruleId: rule.id, state: "matched" as const })),
+        faviconFellBack: false,
+      });
+    });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    vi.useFakeTimers();
+
+    // Pick an element: commitAndRender() re-renders immediately, well before the
+    // debounced save fires, so the content script has not been told about the new
+    // rule yet — the dot must render "unknown", not a false "matched" or "not-found".
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getApp().querySelector(".dot")?.className).toBe("dot unknown");
+    expect(save).not.toHaveBeenCalled();
+
+    // The debounce fires: the save lands, and its settlement (see persistCommit() /
+    // refreshStatusIfIdle() in index.ts) must itself trigger a fresh render — nothing
+    // else re-renders after this point in the test.
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(getApp().querySelector(".dot")?.className).toBe("dot matched");
+  });
+
+  it("does not refresh while a field inside the panel has focus, so it cannot fight an open edit", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+    input.focus();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const markerBefore = getApp().firstElementChild;
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    // The save settled, but the prefix input the user is still in still has focus:
+    // the settle-triggered refresh must not rebuild #app out from under it.
+    expect(document.activeElement).toBe(input);
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("[QA] ");
   });
 });
 
