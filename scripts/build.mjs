@@ -13,6 +13,7 @@ const entries = {
   options: "src/options/index.ts",
   sidepanel: "src/sidepanel/index.ts",
   picker: "src/content/picker/index.ts",
+  frame: "src/content/panelFrame.ts",
 };
 
 async function buildTarget(target) {

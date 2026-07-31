@@ -1,6 +1,6 @@
+import type { Runtime } from "webextension-polyfill";
 import { activePatterns } from "../core/permissions";
 import { browser, settingsRepo } from "../shared/browser";
-import { openSidebarOnActionClick } from "../shared/sidebar";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const SCRIPT_ID = "vmui";
@@ -75,6 +75,21 @@ browser.runtime.onMessage.addListener((message: unknown): Promise<boolean> | und
     .catch(() => false);
 });
 
+type TabIdRequest = { type: "color-vmui:tab-id" };
+
+/**
+ * The panel frame runs in an ordinary page and has no notion of its own tab id;
+ * sender.tab is the one place that id is known for free, since the runtime message
+ * itself carries it — no extra permission needed to look it up.
+ */
+browser.runtime.onMessage.addListener(
+  (message: unknown, sender: Runtime.MessageSender): Promise<number | undefined> | undefined => {
+    const request = message as TabIdRequest;
+    if (request?.type !== "color-vmui:tab-id") return undefined;
+    return Promise.resolve(sender.tab?.id);
+  },
+);
+
 browser.runtime.onInstalled.addListener(() => void syncRegistration());
 browser.runtime.onStartup.addListener(() => void syncRegistration());
 browser.storage.onChanged.addListener((changes, area) => {
@@ -82,4 +97,17 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 browser.permissions.onAdded.addListener(() => void syncRegistration());
 browser.permissions.onRemoved.addListener(() => void syncRegistration());
-openSidebarOnActionClick();
+
+/**
+ * Replaces the old side panel's openSidebarOnActionClick(): the click itself is what
+ * grants activeTab, which is what makes injecting into a site with no standing
+ * permission legal. Injects into whichever tab was actually clicked, not "the active
+ * tab" queried separately — the two can differ by the time an async lookup resolves.
+ */
+browser.action.onClicked.addListener((tab) => {
+  if (tab.id === undefined) return;
+  void browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["frame.js"] }).catch(() => {
+    // Browser-internal pages, the extension store and PDF viewers refuse script
+    // injection; nothing the extension can do about it, and nothing to report to.
+  });
+});
