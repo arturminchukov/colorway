@@ -201,7 +201,7 @@ describe("panel: storage echo vs. an edit in progress", () => {
     // Let the 300ms debounce flush, exactly as described in the review finding: no
     // `change` ever fired, but enough time passed that the save went through and
     // `pendingSave` is back to null by the time the echo below arrives. The settle
-    // itself legitimately rebuilds #app once (see refreshStatusIfIdle() in index.ts,
+    // itself legitimately rebuilds #app once (see renderIfIdle() in index.ts,
     // which picks up fresh rule-dot status now that something was actually saved) —
     // that rebuild is not what this test is about, so the marker is captured after it,
     // not before.
@@ -723,7 +723,7 @@ describe("panel: refreshing rule status once the panel's own save settles", () =
     expect(save).not.toHaveBeenCalled();
 
     // The debounce fires: the save lands, and its settlement (see persistCommit() /
-    // refreshStatusIfIdle() in index.ts) must itself trigger a fresh render — nothing
+    // renderIfIdle() in index.ts) must itself trigger a fresh render — nothing
     // else re-renders after this point in the test.
     await vi.advanceTimersByTimeAsync(300);
     await vi.advanceTimersByTimeAsync(0);
@@ -749,6 +749,29 @@ describe("panel: refreshing rule status once the panel's own save settles", () =
 
     // The save settled, but the prefix input the user is still in still has focus:
     // the settle-triggered refresh must not rebuild #app out from under it.
+    expect(document.activeElement).toBe(input);
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("[QA] ");
+  });
+
+  it("does not rebuild the panel when its own tab reports an update while a field has focus", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    const input = prefixInput();
+    input.focus();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const markerBefore = getApp().firstElementChild;
+    // The committed prefix reaches the content script, which repaints the tab's icon
+    // and title; the browser reports that back as an update to this very tab, while
+    // the user is still typing into the field that caused it.
+    updatedListener()(1, { title: "[QA] Example" }, {});
+    await Promise.resolve();
+    await Promise.resolve();
+
     expect(document.activeElement).toBe(input);
     expect(getApp().firstElementChild).toBe(markerBefore);
     expect(prefixInput()).toBe(input);

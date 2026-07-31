@@ -167,7 +167,7 @@ function persistCommit(next: Settings): Promise<void> {
     // script only inside render(), see tabStatus() — are now stale until something
     // re-renders. Every render() that showed them ran before this save reached
     // storage, so without this they would stay wrong indefinitely.
-    refreshStatusIfIdle();
+    renderIfIdle();
   };
   // Clear the guard on rejection too (quota exceeded, extension context
   // invalidated, ...): if only the success path cleared it, a single failed save
@@ -182,8 +182,9 @@ function persistCommit(next: Settings): Promise<void> {
 }
 
 /**
- * Re-renders to pick up fresh rule-dot / footer status from the content script, but
- * only when nothing inside the panel has focus. A save settling is not itself a sign
+ * Re-renders for something the user did not just ask for — a save settling, the tab
+ * reporting an update — but only when nothing inside the panel has focus. A save
+ * settling is not itself a sign
  * that editing has stopped — the user can easily still be in another field when an
  * earlier commit's debounce fires — so re-rendering unconditionally here would
  * rebuild #app and kick focus out from under them, reintroducing exactly what the
@@ -191,7 +192,7 @@ function persistCommit(next: Settings): Promise<void> {
  * this simply does nothing; the next settle after focus moves on (or the next
  * settled edit's own commitAndRender()) picks the status up instead.
  */
-function refreshStatusIfIdle(): void {
+function renderIfIdle(): void {
   if (document.activeElement && app.contains(document.activeElement)) return;
   void render();
 }
@@ -555,7 +556,13 @@ async function render(): Promise<void> {
 // whatever the user is typing into), reintroducing from outside exactly what the
 // commit/commitAndRender split exists to prevent.
 browser.tabs.onUpdated.addListener((tabId) => {
-  if (tabId === ownTabId) void render();
+  // Idle-guarded, not a bare render(): this window's own edits cause these events.
+  // A committed favicon color, letters or tab prefix reaches storage 300ms after the
+  // last keystroke, the content script repaints the tab's icon and title, and the
+  // browser reports that back here as an update to this very tab — mid-typing. A
+  // bare render() would rebuild #app and throw the caret out of the field that
+  // caused it, which is what the commit()/commitAndRender() split exists to prevent.
+  if (tabId === ownTabId) renderIfIdle();
 });
 
 type PickedMessage = { type: "color-vmui:picked"; selector: string };

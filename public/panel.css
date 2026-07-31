@@ -110,6 +110,22 @@ button.icon { background: none; color: var(--muted); padding: 0 2px; font-size: 
   font-size: 12px;
 }
 .preview img { width: 15px; height: 15px; flex: 0 0 auto; }
+.preview .swatch { width: 15px; height: 15px; flex: 0 0 auto; }
+
+/* The site's own icon used as a mask over the chosen color: what shows is the icon's
+   shape filled with that color, which is what the content script's canvas tint does
+   to the real favicon. --icon is set inline, per icon, by renderTabPreview. */
+.tinted {
+  -webkit-mask-image: var(--icon);
+  mask-image: var(--icon);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  border-radius: 0;
+}
 .preview .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview .prefix { font-weight: 700; }
 

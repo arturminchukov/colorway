@@ -28,17 +28,22 @@ export function renderTabPreview(options: {
     swatch.style.background = plan.color;
     swatch.textContent = plan.letters.slice(0, 2).toUpperCase();
     tab.append(swatch);
+  } else if (plan.kind === "tint") {
+    // A CSS silhouette stands in for the real canvas tint, which only the content
+    // script can produce. The icon is used as a mask over the chosen color, so what
+    // shows is the icon's shape filled with that color — the same thing the content
+    // script's "source-in" canvas fill produces. Painting the icon black over a
+    // colored background instead (as this once did) hides the color completely
+    // behind any icon that is not mostly transparent: the user sees a black square.
+    const silhouette = document.createElement("span");
+    silhouette.className = "swatch tinted";
+    silhouette.style.background = plan.color;
+    silhouette.style.setProperty("--icon", `url("${icon ?? buildFaviconDataUrl("?", "#9ca3af") ?? ""}")`);
+    tab.append(silhouette);
   } else {
     const image = document.createElement("img");
     image.src = icon ?? buildFaviconDataUrl("?", "#9ca3af") ?? "";
     image.alt = "";
-    if (plan.kind === "tint") {
-      // A CSS silhouette stands in for the real canvas tint, which only the content
-      // script can produce; the shape and the color are both truthful.
-      image.style.filter = "grayscale(1) brightness(0)";
-      image.style.background = plan.color;
-      image.style.borderRadius = "3px";
-    }
     tab.append(image);
   }
 

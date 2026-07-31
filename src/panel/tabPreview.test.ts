@@ -19,12 +19,18 @@ describe("renderTabPreview", () => {
     expect(image?.style.background).toBe("");
   });
 
-  it("renders the site icon behind the tint color in 'tinted' mode", () => {
+  it("fills the site icon's shape with the tint color in 'tinted' mode", () => {
     const profile = { ...createProfile("prod"), faviconMode: "tinted" as const, faviconColor: "#c62828" };
     const wrap = renderTabPreview({ profile, icon: "https://example.com/favicon.ico" });
-    const image = wrap.querySelector("img");
-    expect(image).toBeTruthy();
-    expect(image?.style.background).toBe("rgb(198, 40, 40)");
+
+    // The icon masks the color rather than being painted over it: an <img> darkened
+    // to a silhouette would hide the color behind any icon that is not mostly
+    // transparent, showing the user a black square instead of their tint.
+    const silhouette = wrap.querySelector<HTMLElement>(".swatch.tinted");
+    expect(silhouette).toBeTruthy();
+    expect(silhouette?.style.background).toBe("rgb(198, 40, 40)");
+    expect(silhouette?.style.getPropertyValue("--icon")).toBe('url("https://example.com/favicon.ico")');
+    expect(wrap.querySelector("img")).toBeNull();
   });
 
   it("renders a letters swatch in 'initials' mode", () => {
