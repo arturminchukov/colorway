@@ -9,10 +9,6 @@ body {
   padding: 16px;
 }
 
-body.popup {
-  width: 320px;
-}
-
 .card {
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
   border-radius: 8px;
