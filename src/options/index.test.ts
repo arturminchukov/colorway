@@ -152,9 +152,16 @@ describe("options: rule count note replaces the editor", () => {
     const rule = createRule(".only-in-side-panel");
     await loadModule(settingsWith(profile({ rules: [rule] })));
     const card = cards()[0];
-    // The old rule editor nested another `.card` row per rule with a selector input.
+    // The old rule editor nested another `.card` row per rule with a selector input
+    // carrying the rule's selector as its value. textContent never reflects an
+    // input's value at all (it only ever exposes text nodes), so asserting the
+    // selector isn't in textContent — as this test used to — passes whether or not
+    // that editor exists; checking the fields' actual values is what can fail.
     expect(card.querySelectorAll(".card")).toHaveLength(0);
-    expect(card.textContent).not.toContain(".only-in-side-panel");
+    const fieldValues = [...card.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")].map(
+      (field) => field.value,
+    );
+    expect(fieldValues).not.toContain(rule.selector);
   });
 });
 
