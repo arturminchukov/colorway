@@ -48,6 +48,12 @@ h1 { font: 600 13px/1.3 system-ui; margin: 0; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 
+/* Must outrank every `display` an author rule sets below — the favicon block is
+   hidden by the `hidden` attribute, and the UA stylesheet's own [hidden] rule loses
+   to any class that sets a display of its own (.section does). Without this the
+   block simply never collapses again. */
+[hidden] { display: none !important; }
+
 .section { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); display: grid; gap: var(--space-3); }
 .section:first-of-type { border-top: 0; }
 .section > p { margin: 0; }

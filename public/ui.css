@@ -37,6 +37,11 @@
 
 * { box-sizing: border-box; }
 
+/* Outranks every `display` set below: an element hidden by the `hidden` attribute
+   must stay hidden even when a class of its own sets a display (see panel.css, where
+   exactly that regressed the favicon block). */
+[hidden] { display: none !important; }
+
 body {
   margin: 0 auto;
   padding: var(--space-5) var(--space-4);
