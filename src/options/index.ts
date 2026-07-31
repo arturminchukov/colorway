@@ -136,13 +136,15 @@ function renderCard(profile: Profile): HTMLElement {
   status.className = "muted";
 
   const save = document.createElement("button");
+  save.className = "primary";
   save.textContent = "Save";
 
   const remove = document.createElement("button");
+  remove.className = "danger";
   remove.textContent = "Delete";
 
   const buttons = document.createElement("div");
-  buttons.className = "row";
+  buttons.className = "row actions";
   buttons.append(save, remove);
   card.append(buttons, status);
 
@@ -328,6 +330,7 @@ function render(): void {
   for (const profile of settings.profiles) app.append(renderCard(profile));
 
   const add = document.createElement("button");
+  add.className = "primary";
   add.textContent = "Add profile";
   add.addEventListener("click", () => {
     const nextSettings: Settings = { ...settings, profiles: [...settings.profiles, createProfile("vmui")] };

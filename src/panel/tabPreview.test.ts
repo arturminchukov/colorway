@@ -53,4 +53,13 @@ describe("renderTabPreview", () => {
     expect(wrap.querySelector(".prefix")?.textContent).toBe("[PROD] ");
     expect(wrap.querySelector(".text")?.textContent).toBe("[PROD] Dashboard");
   });
+
+  it("does not print the prefix twice when the tab's title already carries it", () => {
+    const profile = { ...createProfile("prod"), titlePrefix: "[PROD] " };
+    // What the browser reports once the content script has done its job: the prefix
+    // is already part of the tab's title.
+    const wrap = renderTabPreview({ profile, title: "[PROD] Dashboard" });
+    expect(wrap.querySelector(".prefix")?.textContent).toBe("[PROD] ");
+    expect(wrap.querySelector(".text")?.textContent).toBe("[PROD] Dashboard");
+  });
 });

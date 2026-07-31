@@ -17,6 +17,7 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
     onPatchSettled: vi.fn(),
     onRemove: vi.fn(),
     onPick: vi.fn(),
+    pickingRuleId: null,
     onAdd: vi.fn(),
     ...overrides,
   };
@@ -164,36 +165,66 @@ describe("renderRulesSection", () => {
       expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { background: "#00ff00" });
     });
 
-    it("routes the color checkbox's toggle through onPatchSettled only, both on and off", () => {
-      const { section, onPatch, onPatchSettled, rule } = expandedSection();
-      const checkboxes = section.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
-      const fillCheckbox = checkboxes[0];
-      const fillColor = section.querySelectorAll<HTMLInputElement>('input[type="color"]')[0];
-
-      // Off -> on: the rule's background starts null, so the checkbox starts unchecked
-      // and the color input starts disabled.
-      expect(fillCheckbox.checked).toBe(false);
-      expect(fillColor.disabled).toBe(true);
-
-      fillCheckbox.checked = true;
-      fillCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
-      expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { background: fillColor.value });
-      expect(fillColor.disabled).toBe(false);
-      expect(onPatch).not.toHaveBeenCalled();
-
-      // On -> off: emits null through the same settled callback.
-      fillCheckbox.checked = false;
-      fillCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
-      expect(onPatchSettled).toHaveBeenLastCalledWith(rule.id, { background: null });
-      expect(fillColor.disabled).toBe(true);
+    it("offers no checkbox: touching a color is the decision to use it", () => {
+      const { section } = expandedSection();
+      // The rule's colors start null, and the fields are live from the start —
+      // ticking a box before choosing a color was ceremony for a decision the user
+      // had already made by opening the picker.
+      expect(section.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+      expect(section.querySelectorAll<HTMLInputElement>('input[type="color"]')[0].disabled).toBe(false);
+      expect(section.querySelector(".color.unset")).not.toBeNull();
     });
 
-    it("starts the color input enabled when the rule already has a color", () => {
+    it("offers a clear button only for a color that is set, and it unsets through onPatchSettled", () => {
+      const unset = expandedSection();
+      expect(unset.section.querySelectorAll(".clear")).toHaveLength(0);
+
+      const rule = { ...createRule(".a"), background: "#123456" };
+      const onPatchSettled = vi.fn();
+      const section = renderRulesSection(
+        baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, onPatchSettled }),
+      );
+      const clear = section.querySelectorAll<HTMLButtonElement>(".clear");
+      expect(clear).toHaveLength(1);
+
+      clear[0].click();
+      expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { background: null });
+    });
+
+    it("waits for the pick instead of offering the button while this rule's pick is in flight", () => {
+      const rule = createRule("");
+      const onPick = vi.fn();
+      const section = renderRulesSection(
+        baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, pickingRuleId: rule.id, onPick }),
+      );
+      // The picker holds the page and the window is dimmed: pressing the button again
+      // would do nothing, so it is replaced by what the user should do instead.
+      expect(section.querySelector(".pick")).toBeNull();
+      expect(section.querySelector(".waiting")).not.toBeNull();
+      expect(section.querySelector(".waiting .spinner")).not.toBeNull();
+      expect(section.querySelector(".waiting")?.textContent).toContain("click an element");
+    });
+
+    it("offers the button again once no pick is in flight", () => {
+      const rule = createRule("");
+      const onPick = vi.fn();
+      const section = renderRulesSection(
+        baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, pickingRuleId: null, onPick }),
+      );
+      expect(section.querySelector(".waiting")).toBeNull();
+      section.querySelector<HTMLButtonElement>(".pick")!.click();
+      expect(onPick).toHaveBeenCalledWith(rule.id);
+    });
+
+    it("shows the rule's existing color in the field", () => {
       const rule = { ...createRule(".a"), background: "#123456" };
       const section = renderRulesSection(baseOptions({ profile: profileWithRules(rule), expandedId: rule.id }));
       const fillColor = section.querySelectorAll<HTMLInputElement>('input[type="color"]')[0];
-      expect(fillColor.disabled).toBe(false);
       expect(fillColor.value.toLowerCase()).toBe("#123456");
+      // Only the fill is set here; the text color is still untouched, so exactly one
+      // of the two fields carries the "unset" look.
+      expect(section.querySelectorAll(".color.unset")).toHaveLength(1);
+      expect(section.querySelectorAll(".color")[0].className).toBe("color");
     });
   });
 });

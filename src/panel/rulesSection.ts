@@ -1,6 +1,6 @@
 import type { RuleState } from "../content/index";
 import type { ColorRule, Profile } from "../core/profile";
-import { checkbox, colorInput, labelled, textInput } from "../shared/controls";
+import { colorInput, labelled, textInput } from "../shared/controls";
 
 // The panel's own state model: whatever the content script reported (RuleState),
 // plus "unknown" for a rule it has not answered for at all — the tab has not loaded
@@ -16,11 +16,12 @@ const STATE_TITLE: Record<PanelRuleState, string> = {
 };
 
 /**
- * A rule's color is optional: the checkbox tells "leave this property alone" apart
- * from "paint it", because <input type="color"> has no empty state of its own.
- * The checkbox and the settled color go through onSettled (a re-render is safe there:
- * neither fires mid-keystroke); the color's live drag goes through onChange only, so
- * render() never tears down the picker while it is open.
+ * A rule's color is optional — null means "leave this property alone" — but
+ * `<input type="color">` has no empty state of its own, so the distinction lives in
+ * how the field is presented: unset until touched, with a clear button once it is
+ * set. The settled color and the clear go through onSettled (a re-render is safe
+ * there: neither fires mid-drag); the color's live drag goes through onChange only,
+ * so render() never tears down the picker while it is open.
  */
 function renderColor(
   label: string,
@@ -28,19 +29,28 @@ function renderColor(
   onChange: (next: string | null) => void,
   onSettled: (next: string | null) => void,
 ): HTMLElement {
-  const on = checkbox(value !== null);
   const color = colorInput(value ?? "#3f51b5");
-  color.disabled = value === null;
-
-  on.addEventListener("change", () => {
-    color.disabled = !on.checked;
-    onSettled(on.checked ? color.value : null);
-  });
+  // Touching the swatch is the whole intent: a user who moves a color picker wants
+  // that color, and having to tick a box first was one step of ceremony for a
+  // decision they had already made. "Leave this property alone" is still reachable —
+  // that is what the clear button below is for — but it is no longer the gate.
   color.addEventListener("input", () => onChange(color.value));
   color.addEventListener("change", () => onSettled(color.value));
 
   const wrap = document.createElement("label");
-  wrap.append(label, on, color);
+  wrap.className = value === null ? "color unset" : "color";
+  wrap.append(label, color);
+
+  // Only offered once a color is actually set: before that there is nothing to clear.
+  if (value !== null) {
+    const clear = document.createElement("button");
+    clear.className = "icon clear";
+    clear.textContent = "×";
+    clear.title = `Leave ${label} alone`;
+    clear.addEventListener("click", () => onSettled(null));
+    wrap.append(clear);
+  }
+
   return wrap;
 }
 
@@ -56,9 +66,12 @@ export function renderRulesSection(options: {
   onRemove(ruleId: string): void;
   /** Hands the page over to the picker; whatever is clicked becomes this rule's selector. */
   onPick(ruleId: string): void;
+  /** The rule whose pick is in flight right now, if any: its editor waits instead of offering the button. */
+  pickingRuleId: string | null;
   onAdd(): void;
 }): HTMLElement {
   const { profile, states, expandedId, onExpand, onPatch, onPatchSettled, onRemove, onPick, onAdd } = options;
+  const { pickingRuleId } = options;
 
   const section = document.createElement("div");
   section.className = "section";
@@ -122,15 +135,27 @@ export function renderRulesSection(options: {
     selectorInput.addEventListener("change", () => onPatchSettled(rule.id, { selector: selectorInput.value.trim() }));
     const selectorRow = labelled("Selector", selectorInput);
 
-    // The rule exists before it has a selector, so picking is an action ON a rule
-    // rather than the way a rule comes into being: this button is what hands the
-    // page over to the picker and fills this rule's selector with what is clicked.
-    const pick = document.createElement("button");
-    pick.className = "pick";
-    pick.textContent = "Select element";
-    pick.title = "Pick this rule's element on the page";
-    pick.addEventListener("click", () => onPick(rule.id));
-    selectorRow.append(pick);
+    if (rule.id === pickingRuleId) {
+      // The picker has the page and the window is dimmed: the button that started it
+      // would do nothing if pressed again, and leaving it there says nothing about
+      // what the user is now expected to do. This says it.
+      const waiting = document.createElement("span");
+      waiting.className = "waiting";
+      const spinner = document.createElement("span");
+      spinner.className = "spinner";
+      waiting.append(spinner, "Hover the page and click an element · Esc cancels");
+      selectorRow.append(waiting);
+    } else {
+      // The rule exists before it has a selector, so picking is an action ON a rule
+      // rather than the way a rule comes into being: this button is what hands the
+      // page over to the picker and fills this rule's selector with what is clicked.
+      const pick = document.createElement("button");
+      pick.className = "pick";
+      pick.textContent = "Select element";
+      pick.title = "Pick this rule's element on the page";
+      pick.addEventListener("click", () => onPick(rule.id));
+      selectorRow.append(pick);
+    }
 
     editor.append(selectorRow);
 

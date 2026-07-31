@@ -1,5 +1,6 @@
 import { buildFaviconDataUrl, faviconPlan } from "../core/favicon";
 import type { Profile } from "../core/profile";
+import { stripPrefix } from "../core/title";
 
 /**
  * The tab as the user will see it: the site's own icon, or what the profile puts in
@@ -55,7 +56,14 @@ export function renderTabPreview(options: {
     prefix.textContent = profile.titlePrefix;
     text.append(prefix);
   }
-  text.append(title ?? "Untitled page");
+  // The tab's own title already carries the prefix once the content script has
+  // applied it, so showing it verbatim next to the prefix chip above would print it
+  // twice. stripPrefix is a no-op when it is not there yet (the profile was just
+  // created, or the page has not been touched), so the preview reads the same either
+  // way — which is the point: it shows what the tab will look like, not what the
+  // browser happens to report at this instant.
+  const plain = stripPrefix(title ?? "Untitled page", profile?.titlePrefix ?? "");
+  text.append(plain || "Untitled page");
   tab.append(text);
 
   wrap.append(tab);

@@ -163,4 +163,24 @@ describe("renderFaviconSection", () => {
     prefix.dispatchEvent(new Event("change", { bubbles: true }));
     expect(onPatchSettled).toHaveBeenCalledWith({ titlePrefix: "[QA] " });
   });
+
+  it("offers no color field in 'original' mode, where the color changes nothing", () => {
+    const original = renderFaviconSection({
+      profile: { ...createProfile("prod"), faviconMode: "original" },
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    expect(original.querySelectorAll('input[type="color"]')).toHaveLength(0);
+
+    const tinted = renderFaviconSection({
+      profile: { ...createProfile("prod"), faviconMode: "tinted" },
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    expect(tinted.querySelectorAll('input[type="color"]')).toHaveLength(1);
+  });
 });

@@ -335,8 +335,12 @@ function startPicking(url: string, tabId: number | undefined, ruleId: string): v
         return;
       }
       // Only now is the page actually in picking mode; dimming any earlier would
-      // fade the window for a pick that never started.
+      // fade the window for a pick that never started. The re-render swaps the
+      // rule's "Select element" button for the waiting state — the button is dead
+      // while the picker holds the page, and saying what to do next beats leaving a
+      // control that does nothing.
       sendPicking(true, tabId);
+      void render();
     })
     .catch((error: unknown) => {
       pickTargetRuleId = null;
@@ -527,6 +531,7 @@ async function render(): Promise<void> {
           commitAndRender(removeRule(settings, profile.id, ruleId), tab);
         },
         onPick: (ruleId) => startPicking(tab.url!, tab.id, ruleId),
+        pickingRuleId: pickTargetRuleId,
         // The rule appears at once, empty and expanded, instead of only after an
         // element has been picked: the user asked to add a rule, so a rule is what
         // they get, with "Select element" inside it as the next step. Until it has a
@@ -639,6 +644,8 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   // waiting for one simply keeps the selector it had. Nothing to write.
   if (cancelled) {
     pickTargetRuleId = null;
+    // Back to the button: the rule is no longer waiting for anything.
+    void render();
     return undefined;
   }
 

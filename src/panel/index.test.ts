@@ -929,6 +929,9 @@ describe("panel: adding a rule via the picker", () => {
     await Promise.resolve();
 
     expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: false });
+    // Cancelling re-renders (the waiting state goes back to being a button), so wait
+    // for that render rather than reading a half-rebuilt #app.
+    await vi.waitFor(() => expect(getApp().querySelector(".pick")).not.toBeNull());
     expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
     expect(getApp().querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe("");
   });

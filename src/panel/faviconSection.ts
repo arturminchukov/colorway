@@ -71,10 +71,16 @@ export function renderFaviconSection(options: {
   }
   body.append(modes);
 
-  const color = colorInput(profile.faviconColor);
-  color.addEventListener("input", () => onPatch({ faviconColor: color.value }));
-  color.addEventListener("change", () => onPatchSettled({ faviconColor: color.value }));
-  body.append(labelled("Favicon", color));
+  // "Original" leaves the site's own icon exactly as it is, so its color is not used
+  // by anything — the same reasoning as the letters field below. A color picker that
+  // changes nothing visible is worse than no picker: it invites the user to conclude
+  // the feature is broken.
+  if (profile.faviconMode !== "original") {
+    const color = colorInput(profile.faviconColor);
+    color.addEventListener("input", () => onPatch({ faviconColor: color.value }));
+    color.addEventListener("change", () => onPatchSettled({ faviconColor: color.value }));
+    body.append(labelled(profile.faviconMode === "initials" ? "Background" : "Tint", color));
+  }
 
   // Letters only matter in "initials" mode; showing a field that changes nothing
   // invites the user to wonder why it does nothing.
