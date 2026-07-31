@@ -19,7 +19,7 @@ const MODE_SUMMARY: Record<FaviconMode, string> = {
  * find out what is configured.
  *
  * The open/closed state is owned by the caller (see `expanded`/`onToggle`), not kept
- * on the DOM element: the side panel rebuilds this section on every settled edit
+ * on the DOM element: the panel rebuilds this section on every settled edit
  * (commitAndRender(), same as the rules section's expandedId/onExpand), and state
  * living only in the DOM would snap shut on every one of those rebuilds.
  */

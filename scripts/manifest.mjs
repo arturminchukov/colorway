@@ -10,10 +10,10 @@ const base = {
   optional_host_permissions: ["*://*/*"],
   action: { default_title: "color-vmui" },
   options_ui: { page: "options.html", open_in_tab: true },
-  // sidepanel.html is loaded in an iframe injected into the clicked page, on any
+  // panel.html is loaded in an iframe injected into the clicked page, on any
   // site — not just ones the extension has host permission for — so it must be
   // reachable from every origin rather than none.
-  web_accessible_resources: [{ resources: ["sidepanel.html"], matches: ["<all_urls>"] }],
+  web_accessible_resources: [{ resources: ["panel.html"], matches: ["<all_urls>"] }],
 };
 
 const overrides = {

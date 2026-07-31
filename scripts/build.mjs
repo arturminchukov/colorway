@@ -11,7 +11,7 @@ const entries = {
   content: "src/content/index.ts",
   background: "src/background/index.ts",
   options: "src/options/index.ts",
-  sidepanel: "src/sidepanel/index.ts",
+  panel: "src/panel/index.ts",
   picker: "src/content/picker/index.ts",
   frame: "src/content/panelFrame.ts",
 };

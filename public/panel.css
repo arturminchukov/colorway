@@ -180,6 +180,6 @@ button.icon { background: none; color: var(--muted); padding: 0 2px; font-size: 
   gap: 8px;
 }
 
-/* A disabled profile stays fully editable (see sidepanel/index.ts) — dimmed rather
+/* A disabled profile stays fully editable (see panel/index.ts) — dimmed rather
    than hidden, so the user can still see and fix what they're about to turn back on. */
 .profile-off { opacity: 0.55; }

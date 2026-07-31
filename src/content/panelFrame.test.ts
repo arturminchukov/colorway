@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe("panelFrame", () => {
-  it("creates the window with the picker's own-ui attribute and an iframe pointing at sidepanel.html with the tab id", async () => {
+  it("creates the window with the picker's own-ui attribute and an iframe pointing at panel.html with the tab id", async () => {
     load.mockResolvedValue(null);
     sendMessage.mockResolvedValue(7);
 
@@ -50,7 +50,7 @@ describe("panelFrame", () => {
     const host = panel()!;
     expect(host.hasAttribute(PICKER_UI_ATTR)).toBe(true);
     const iframe = host.shadowRoot!.querySelector("iframe")!;
-    await vi.waitFor(() => expect(iframe.src).toBe("chrome-extension://abc/sidepanel.html?tabId=7"));
+    await vi.waitFor(() => expect(iframe.src).toBe("chrome-extension://abc/panel.html?tabId=7"));
   });
 
   it("a second call closes the window instead of stacking a second one", async () => {

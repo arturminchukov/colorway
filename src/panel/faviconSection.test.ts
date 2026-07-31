@@ -59,7 +59,7 @@ describe("renderFaviconSection", () => {
   it("stays expanded across a rebuild driven by the caller's own state, unlike DOM-only open state", () => {
     // Regression guard for the actual finding: renderFaviconSection() used to keep
     // open/closed only on the DOM element it returned, so a caller that rebuilds it
-    // on every settled edit (as the side panel's render() does via commitAndRender())
+    // on every settled edit (as the panel's render() does via commitAndRender())
     // would snap it shut every time, however `expanded` was passed in. Simulates that
     // rebuild directly: two independent calls with the caller's state fixed at `true`
     // must both render open — nothing here should ever collapse it back to false.

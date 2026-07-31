@@ -191,7 +191,7 @@ async function open(): Promise<() => void> {
 
   void requestTabId().then((tabId) => {
     if (tabId === undefined) return;
-    iframe.src = `${browser.runtime.getURL("sidepanel.html")}?tabId=${tabId}`;
+    iframe.src = `${browser.runtime.getURL("panel.html")}?tabId=${tabId}`;
   });
 
   return stop;

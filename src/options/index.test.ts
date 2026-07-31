@@ -5,7 +5,7 @@ import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 // index.ts imports `settingsRepo` and `browser` from here; stubbing both lets the
 // test drive the module's storage.onChanged listener and permission calls directly,
-// the same pattern src/sidepanel/index.test.ts uses.
+// the same pattern src/panel/index.test.ts uses.
 const { load, save } = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 const { storageOnChangedAddListener, permissionsRequest, permissionsRemove } = vi.hoisted(() => ({
   storageOnChangedAddListener: vi.fn(),
