@@ -1,5 +1,5 @@
 import { patternsToRevoke } from "../core/permissions";
-import { createProfile, createRule, type ColorRule, type Profile, type Settings } from "../core/profile";
+import { createProfile, type Profile, type Settings } from "../core/profile";
 import { browser, settingsRepo } from "../shared/browser";
 import { checkbox, colorInput, labelled, textInput } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
@@ -41,8 +41,8 @@ function setPageStatus(status: { className: "muted" | "error"; text: string } | 
 }
 
 const PENDING_REDRAW_TEXT =
-  "Настройки изменились в другом месте. Ваши правки на месте — нажмите «Сохранить» " +
-  "в изменённой карточке, чтобы записать их, или перезагрузите страницу, чтобы увидеть новые значения.";
+  "Settings changed elsewhere. Your edits are intact — press Save in the changed card, " +
+  "or reload the page to see the new values.";
 
 /**
  * Marks that the page owes the user a full redraw once no card is dirty any more —
@@ -70,9 +70,9 @@ async function revokeOrphaned(patterns: string[]): Promise<string | null> {
   try {
     return (await browser.permissions.remove({ origins: patterns }))
       ? null
-      : "не удалось отозвать разрешения";
+      : "could not revoke permissions";
   } catch (error) {
-    return `не удалось отозвать разрешения: ${String(error)}`;
+    return `could not revoke permissions: ${String(error)}`;
   }
 }
 
@@ -81,58 +81,6 @@ function readPatterns(area: HTMLTextAreaElement): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-/**
- * A rule's color is optional: the checkbox tells "leave this property alone" apart
- * from "paint it", because <input type="color"> has no empty state of its own.
- */
-function renderRule(
-  rule: ColorRule,
-  onChange: (next: ColorRule) => void,
-  onDelete: () => void,
-): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "card";
-
-  const selector = textInput(rule.selector);
-  selector.placeholder = ".vm-header";
-  row.append(labelled("Селектор", selector));
-
-  const colorControls = document.createElement("div");
-  colorControls.className = "row";
-
-  const build = (label: string, value: string | null): { wrap: HTMLElement; read: () => string | null } => {
-    const enabled = checkbox(value !== null);
-
-    const color = colorInput(value ?? "#3f51b5");
-    color.disabled = value === null;
-    enabled.addEventListener("change", () => {
-      color.disabled = !enabled.checked;
-    });
-
-    const wrap = document.createElement("label");
-    wrap.append(label, enabled, color);
-    return { wrap, read: () => (enabled.checked ? color.value : null) };
-  };
-
-  const background = build("Фон", rule.background);
-  const text = build("Текст", rule.text);
-  colorControls.append(background.wrap, text.wrap);
-  row.append(colorControls);
-
-  const remove = document.createElement("button");
-  remove.textContent = "Удалить правило";
-  remove.addEventListener("click", onDelete);
-  row.append(remove);
-
-  const collect = (): void => {
-    onChange({ ...rule, selector: selector.value.trim(), background: background.read(), text: text.read() });
-  };
-  row.addEventListener("change", collect);
-  row.addEventListener("input", collect);
-
-  return row;
 }
 
 function renderCard(profile: Profile): HTMLElement {
@@ -156,7 +104,7 @@ function renderCard(profile: Profile): HTMLElement {
 
   const header = document.createElement("div");
   header.className = "row";
-  header.append(labelled("Включён", enabled));
+  header.append(labelled("Enabled", enabled));
   card.append(header);
 
   const inputs = new Map<keyof Profile, HTMLInputElement>();
@@ -174,59 +122,24 @@ function renderCard(profile: Profile): HTMLElement {
   const patterns = document.createElement("textarea");
   patterns.value = profile.patterns.join("\n");
   patterns.placeholder = "*://vm-prod.corp/*";
-  card.append(labelled("URL-паттерны, по одному в строке", patterns));
+  card.append(labelled("URL patterns, one per line", patterns));
 
-  // Rules are edited against a local copy and written by the card's own «Сохранить»,
-  // so a half-edited rule never reaches storage.
-  let rules = profile.rules.map((rule) => ({ ...rule }));
-
-  const rulesBox = document.createElement("div");
-  const renderRules = (): void => {
-    rulesBox.replaceChildren();
-    const heading = document.createElement("p");
-    heading.className = "label";
-    heading.textContent = rules.length ? "Правила" : "Правил пока нет";
-    rulesBox.append(heading);
-
-    rules.forEach((rule, index) => {
-      rulesBox.append(
-        renderRule(
-          rule,
-          (next) => {
-            rules[index] = next;
-          },
-          () => {
-            rules = rules.filter((item) => item.id !== rule.id);
-            renderRules();
-            // Deleting a rule is a click, not an "input"/"change" bubble, so the
-            // card's dirty tracking (see markDirty above) needs an explicit nudge.
-            markDirty();
-          },
-        ),
-      );
-    });
-
-    const addRule = document.createElement("button");
-    addRule.textContent = "Добавить правило";
-    addRule.addEventListener("click", () => {
-      rules = [...rules, createRule("")];
-      renderRules();
-      // Same as the delete button: a click never bubbles as "input"/"change".
-      markDirty();
-    });
-    rulesBox.append(addRule);
-  };
-  renderRules();
-  card.append(rulesBox);
+  const rulesNote = document.createElement("p");
+  rulesNote.className = "muted";
+  rulesNote.textContent =
+    profile.rules.length === 0
+      ? "No rules. Open the site and use the side panel to add them."
+      : `${profile.rules.length} rule(s). Edit them in the side panel on that site.`;
+  card.append(rulesNote);
 
   const status = document.createElement("p");
   status.className = "muted";
 
   const save = document.createElement("button");
-  save.textContent = "Сохранить";
+  save.textContent = "Save";
 
   const remove = document.createElement("button");
-  remove.textContent = "Удалить";
+  remove.textContent = "Delete";
 
   const buttons = document.createElement("div");
   buttons.className = "row";
@@ -238,7 +151,7 @@ function renderCard(profile: Profile): HTMLElement {
       ...profile,
       enabled: enabled.checked,
       patterns: readPatterns(patterns),
-      rules: rules.filter((rule) => rule.selector.length > 0),
+      rules: profile.rules,
     };
     for (const [key, input] of inputs) {
       (next as unknown as Record<string, string>)[key] = input.value;
@@ -246,7 +159,7 @@ function renderCard(profile: Profile): HTMLElement {
 
     if (next.patterns.length === 0) {
       status.className = "error";
-      status.textContent = "Нужен хотя бы один URL-паттерн";
+      status.textContent = "At least one URL pattern is required";
       return;
     }
 
@@ -262,7 +175,7 @@ function renderCard(profile: Profile): HTMLElement {
       .then(async (granted) => {
         // `settings` follows storage (see the storage.onChanged listener below), so the
         // profile may have been deleted elsewhere while this card stayed on screen.
-        // Writing it back would resurrect it, and reporting "Сохранено" for a write that
+        // Writing it back would resurrect it, and reporting "Saved" for a write that
         // stored nothing would be a lie. The access just granted is orphaned as well.
         const previous = settings.profiles.find((item) => item.id === next.id);
         if (!previous) {
@@ -273,8 +186,8 @@ function renderCard(profile: Profile): HTMLElement {
           const strandedError = await revokeOrphaned(patternsToRevoke(next, settings.profiles));
           status.className = "error";
           status.textContent = strandedError
-            ? `Профиль удалён в другом месте — сохранять нечего; ${strandedError}`
-            : "Профиль удалён в другом месте — сохранять нечего";
+            ? `Profile deleted elsewhere — nothing to save; ${strandedError}`
+            : "Profile deleted elsewhere — nothing to save";
           return;
         }
 
@@ -288,16 +201,11 @@ function renderCard(profile: Profile): HTMLElement {
 
         // If the user kept editing this card while the permission prompt / write were
         // pending, `next` no longer reflects what's on screen. Clearing the dirty flag
-        // or overwriting `rules` here would silently discard that newer input, so both
-        // are skipped — the card stays dirty and protected until the next save.
+        // here would silently discard that newer input, so it's skipped — the card
+        // stays dirty and protected until the next save.
         const editedDuringSave = dirtyVersion !== dirtyVersionAtSave;
         if (!editedDuringSave) {
           dirtyProfileIds.delete(next.id);
-
-          // The write drops rules with an empty selector (see `next.rules` above); the
-          // card's own list must not go on showing one of those as if it had been saved.
-          rules = next.rules.map((rule) => ({ ...rule }));
-          renderRules();
         }
 
         // Patterns this edit orphaned: held by the profile before the edit and by
@@ -307,13 +215,13 @@ function renderCard(profile: Profile): HTMLElement {
         const revokeError = await revokeOrphaned(patternsToRevoke(previous, nextSettings.profiles));
 
         const savedText = granted
-          ? "Сохранено"
-          : "Сохранено, но доступ к этим адресам не выдан — профиль не применится";
+          ? "Saved"
+          : "Saved, but access to these addresses was not granted — the profile will not apply";
         let text = revokeError ? `${savedText}; ${revokeError}` : savedText;
         if (editedDuringSave) {
           text +=
-            ". Карточка была изменена во время сохранения — эти новые правки ещё не сохранены, " +
-            "нажмите «Сохранить» ещё раз";
+            ". The card was edited while saving — those new edits are not saved yet, " +
+            "press Save again";
         }
         status.className = granted && !revokeError && !editedDuringSave ? "muted" : "error";
         status.textContent = text;
@@ -326,14 +234,14 @@ function renderCard(profile: Profile): HTMLElement {
         if (granted && !revokeError && pendingExternalUpdate && dirtyProfileIds.size === 0) {
           setPageStatus({
             className: "muted",
-            text: "Сохранено. Настройки менялись в другом месте — страница обновлена.",
+            text: "Saved. Settings changed elsewhere — the page has been refreshed.",
           });
           render();
         }
       })
       .catch((error: unknown) => {
         status.className = "error";
-        status.textContent = `Ошибка: ${String(error)}`;
+        status.textContent = `Error: ${String(error)}`;
       });
   });
 
@@ -364,7 +272,7 @@ function renderCard(profile: Profile): HTMLElement {
           // scratch and throw that input away, so this profile's removal only
           // shows up once that card is saved (or the page reloaded) — same as
           // any other change that lands in storage while a card is dirty.
-          deferRedraw(revokeError ? `Профиль «${removed.name}» удалён, но ${revokeError}.` : undefined);
+          deferRedraw(revokeError ? `Profile "${removed.name}" deleted, but ${revokeError}.` : undefined);
           return;
         }
 
@@ -373,7 +281,7 @@ function renderCard(profile: Profile): HTMLElement {
         // hence the page-level message about a dangling permission.
         setPageStatus(
           revokeError
-            ? { className: "error", text: `Профиль «${removed.name}» удалён, но ${revokeError}` }
+            ? { className: "error", text: `Profile "${removed.name}" deleted, but ${revokeError}` }
             : null,
         );
         render();
@@ -381,9 +289,9 @@ function renderCard(profile: Profile): HTMLElement {
       .catch((error: unknown) => {
         // settingsRepo.save() itself failed: nothing was persisted, the in-memory
         // state stays untouched and the card is still on screen, so report inline
-        // like the "Сохранить" handler does.
+        // like the "Save" handler does.
         status.className = "error";
-        status.textContent = `Ошибка удаления: ${String(error)}`;
+        status.textContent = `Delete error: ${String(error)}`;
       });
   });
 
@@ -405,14 +313,14 @@ function render(): void {
   if (settings.profiles.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "Профилей пока нет.";
+    empty.textContent = "No profiles yet.";
     app.append(empty);
   }
 
   for (const profile of settings.profiles) app.append(renderCard(profile));
 
   const add = document.createElement("button");
-  add.textContent = "Добавить профиль";
+  add.textContent = "Add profile";
   add.addEventListener("click", () => {
     const nextSettings: Settings = { ...settings, profiles: [...settings.profiles, createProfile("vmui")] };
     settingsRepo
@@ -435,7 +343,7 @@ function render(): void {
       .catch((error: unknown) => {
         // Nothing was persisted, so there is nothing new for any card to reflect —
         // just report the failure without touching what is already on screen.
-        setPageStatus({ className: "error", text: `Не удалось добавить профиль: ${String(error)}` });
+        setPageStatus({ className: "error", text: `Could not add profile: ${String(error)}` });
       });
   });
   app.append(add);
@@ -461,7 +369,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
 
     // Rebuilding now would destroy the input being typed, so the redraw waits for
-    // «Сохранить» (or a page reload) and the user is told the page is stale.
+    // Save (or a page reload) and the user is told the page is stale.
     deferRedraw();
   });
 });
