@@ -17,25 +17,33 @@ const MODE_SUMMARY: Record<FaviconMode, string> = {
  * Collapsed by default: this is set once per site, while rules are edited often.
  * The collapsed row still states the outcome, so opening it is never needed just to
  * find out what is configured.
+ *
+ * The open/closed state is owned by the caller (see `expanded`/`onToggle`), not kept
+ * on the DOM element: the side panel rebuilds this section on every settled edit
+ * (commitAndRender(), same as the rules section's expandedId/onExpand), and state
+ * living only in the DOM would snap shut on every one of those rebuilds.
  */
 export function renderFaviconSection(options: {
   profile: Profile;
+  expanded: boolean;
+  onToggle(expanded: boolean): void;
   /** Fires on every keystroke/drag (input): writes the patch without forcing a re-render. */
   onPatch(patch: Partial<Profile>): void;
   /** Fires once an edit settles (change, or a button click): writes and re-renders. */
   onPatchSettled(patch: Partial<Profile>): void;
 }): HTMLElement {
-  const { profile, onPatch, onPatchSettled } = options;
+  const { profile, expanded, onToggle, onPatch, onPatchSettled } = options;
 
   const wrap = document.createElement("div");
 
   const toggle = document.createElement("button");
   toggle.className = "disclosure";
-  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-expanded", String(expanded));
   toggle.append("Change favicon");
 
   const summary = document.createElement("span");
   summary.className = "summary";
+  summary.hidden = expanded;
   const chip = document.createElement("span");
   chip.className = "chip";
   chip.style.background = profile.faviconColor;
@@ -44,7 +52,7 @@ export function renderFaviconSection(options: {
 
   const body = document.createElement("div");
   body.className = "section";
-  body.hidden = true;
+  body.hidden = !expanded;
 
   const modes = document.createElement("div");
   modes.className = "modes";
@@ -84,12 +92,7 @@ export function renderFaviconSection(options: {
   prefix.addEventListener("change", () => onPatchSettled({ titlePrefix: prefix.value }));
   body.append(labelled("Tab prefix", prefix));
 
-  toggle.addEventListener("click", () => {
-    const open = toggle.getAttribute("aria-expanded") === "true";
-    toggle.setAttribute("aria-expanded", String(!open));
-    body.hidden = open;
-    summary.hidden = !open;
-  });
+  toggle.addEventListener("click", () => onToggle(!expanded));
 
   wrap.append(toggle, body);
   return wrap;

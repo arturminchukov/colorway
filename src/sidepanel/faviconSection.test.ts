@@ -5,25 +5,87 @@ import { renderFaviconSection } from "./faviconSection";
 
 describe("renderFaviconSection", () => {
   it("starts collapsed with the body and summary in the toggled-off state", () => {
-    const wrap = renderFaviconSection({ profile: createProfile("prod"), onPatch: vi.fn(), onPatchSettled: vi.fn() });
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: false,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
     const toggle = wrap.querySelector(".disclosure")!;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(wrap.querySelector(".section")?.hasAttribute("hidden")).toBe(true);
     expect(wrap.querySelector(".summary")?.hasAttribute("hidden")).toBe(false);
   });
 
-  it("expands the body and hides the summary on toggle click", () => {
-    const wrap = renderFaviconSection({ profile: createProfile("prod"), onPatch: vi.fn(), onPatchSettled: vi.fn() });
-    const toggle = wrap.querySelector<HTMLButtonElement>(".disclosure")!;
-    toggle.click();
+  it("renders expanded, with the body shown and summary hidden, when the caller says so", () => {
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    const toggle = wrap.querySelector(".disclosure")!;
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(wrap.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
     expect(wrap.querySelector(".summary")?.hasAttribute("hidden")).toBe(true);
   });
 
+  it("reports the flipped state through onToggle on a click, rather than flipping its own DOM state", () => {
+    const onToggle = vi.fn();
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: false,
+      onToggle,
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    wrap.querySelector<HTMLButtonElement>(".disclosure")!.click();
+    expect(onToggle).toHaveBeenCalledWith(true);
+
+    const onToggleWhenOpen = vi.fn();
+    const openWrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: onToggleWhenOpen,
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    openWrap.querySelector<HTMLButtonElement>(".disclosure")!.click();
+    expect(onToggleWhenOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("stays expanded across a rebuild driven by the caller's own state, unlike DOM-only open state", () => {
+    // Regression guard for the actual finding: renderFaviconSection() used to keep
+    // open/closed only on the DOM element it returned, so a caller that rebuilds it
+    // on every settled edit (as the side panel's render() does via commitAndRender())
+    // would snap it shut every time, however `expanded` was passed in. Simulates that
+    // rebuild directly: two independent calls with the caller's state fixed at `true`
+    // must both render open — nothing here should ever collapse it back to false.
+    const first = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    const second = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    expect(second.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
+    expect(first.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
+  });
+
   it("only shows the letters field in 'initials' mode", () => {
     const original = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "original" },
+      expanded: true,
+      onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
@@ -32,6 +94,8 @@ describe("renderFaviconSection", () => {
 
     const initials = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "initials" },
+      expanded: true,
+      onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
@@ -42,7 +106,13 @@ describe("renderFaviconSection", () => {
   it("clicking a mode button writes through onPatchSettled, not onPatch", () => {
     const onPatch = vi.fn();
     const onPatchSettled = vi.fn();
-    const wrap = renderFaviconSection({ profile: createProfile("prod"), onPatch, onPatchSettled });
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch,
+      onPatchSettled,
+    });
     // Scoped to .modes: the disclosure toggle's summary carries a mode name too.
     const initialsButton = Array.from(wrap.querySelectorAll<HTMLButtonElement>(".modes button")).find((button) =>
       button.textContent?.includes("Initials"),
@@ -55,7 +125,13 @@ describe("renderFaviconSection", () => {
   it("drives the color field's 'input' through onPatch and 'change' through onPatchSettled", () => {
     const onPatch = vi.fn();
     const onPatchSettled = vi.fn();
-    const wrap = renderFaviconSection({ profile: createProfile("prod"), onPatch, onPatchSettled });
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch,
+      onPatchSettled,
+    });
     const color = wrap.querySelector<HTMLInputElement>("input[type=color]")!;
 
     color.value = "#00ff00";
@@ -70,7 +146,13 @@ describe("renderFaviconSection", () => {
   it("drives the prefix field's 'input' through onPatch and 'change' through onPatchSettled", () => {
     const onPatch = vi.fn();
     const onPatchSettled = vi.fn();
-    const wrap = renderFaviconSection({ profile: createProfile("prod"), onPatch, onPatchSettled });
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      onToggle: vi.fn(),
+      onPatch,
+      onPatchSettled,
+    });
     const prefix = wrap.querySelector<HTMLInputElement>("input[type=text]")!;
 
     prefix.value = "[QA] ";

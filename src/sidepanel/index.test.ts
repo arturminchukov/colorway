@@ -497,6 +497,37 @@ describe("sidepanel: flushing a pending save on pagehide", () => {
   });
 });
 
+describe("sidepanel: the favicon section stays open across a settled edit", () => {
+  it("does not collapse when picking a mode re-renders the panel", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ faviconMode: "tinted" })));
+
+    // Open the disclosure.
+    getApp().querySelector<HTMLButtonElement>(".disclosure")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true");
+
+    // Pick "Initials": a settled edit (onPatchSettled -> commitAndRender), which
+    // rebuilds the whole panel including the favicon section from scratch.
+    vi.useFakeTimers();
+    const initialsButton = Array.from(getApp().querySelectorAll<HTMLButtonElement>(".modes button")).find(
+      (button) => button.textContent?.includes("Initials"),
+    )!;
+    initialsButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The section must still be open — its Letters field (only shown in 'initials'
+    // mode while expanded) proves both that the mode switch landed and that the
+    // section did not snap shut.
+    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true");
+    const labels = Array.from(getApp().querySelectorAll("label")).map((label) => label.textContent);
+    expect(labels.some((text) => text?.includes("Letters"))).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(300);
+  });
+});
+
 describe("sidepanel: rules section wiring", () => {
   it("passes the content script's reported states through to the rule dots and the footer note", async () => {
     const matched = createRule(".matched");

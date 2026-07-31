@@ -22,6 +22,14 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 // through commit()/commitAndRender().
 let expandedRuleId: string | null = null;
 
+// Whether the favicon section's disclosure is open. Purely local UI state, like
+// expandedRuleId above — hoisted here for the same reason: renderFaviconSection() is
+// rebuilt on every settled edit (see commitAndRender()), and open/closed state kept
+// only on the DOM element it renders (as this used to be) snaps shut on every one of
+// those rebuilds, e.g. right after picking "Initials" hides the Letters field that
+// had just appeared.
+let faviconSectionExpanded = false;
+
 // Set when starting the picker fails: permission refused, or the background could
 // not inject it. Purely local UI state, like expandedRuleId above. Scoped to the tab
 // it was raised for via pickErrorTabId below, so render() only shows it while that
@@ -305,6 +313,11 @@ async function render(): Promise<void> {
     body.append(
       renderFaviconSection({
         profile,
+        expanded: faviconSectionExpanded,
+        onToggle: (nextExpanded) => {
+          faviconSectionExpanded = nextExpanded;
+          void render();
+        },
         onPatch: (patch) => commit(updateProfile(settings, profile.id, patch), tab),
         onPatchSettled: (patch) => commitAndRender(updateProfile(settings, profile.id, patch), tab),
       }),
