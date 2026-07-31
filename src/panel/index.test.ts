@@ -757,6 +757,51 @@ describe("panel: refreshing rule status once the panel's own save settles", () =
 });
 
 describe("panel: adding a rule via the picker", () => {
+  it("offers to set up a site that has no profile, instead of showing only its domain", async () => {
+    await loadModule(settingsWith());
+
+    const setUp = getApp().querySelector<HTMLButtonElement>("button.primary");
+    expect(setUp?.textContent).toBe("Set up this site");
+    // The domain is there, but so is a way forward — and the options page stays
+    // reachable from a window that has nothing else to show.
+    expect(getApp().querySelector(".mono")?.textContent).toBe("example.com");
+    expect(getApp().querySelector(".footer .link")?.textContent).toBe("All settings →");
+  });
+
+  it("creates the site's first profile once access is granted, revealing the favicon block and the rules list", async () => {
+    await loadModule(settingsWith());
+    permissionsRequest.mockResolvedValue(true);
+
+    getApp().querySelector<HTMLButtonElement>("button.primary")!.click();
+
+    await vi.waitFor(() => expect(getApp().querySelector(".disclosure")).not.toBeNull());
+    expect(permissionsRequest).toHaveBeenCalledWith({ origins: ["*://example.com/*"] });
+    expect(addRuleButton().textContent).toBe("+ Add rule");
+
+    // The profile is real and matches this host, not a placeholder in the DOM only.
+    // Real timers here: the debounce was scheduled by the click above, so a fake clock
+    // installed after the fact would never fire it.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+    const saved = save.mock.calls.at(-1)?.[0] as Settings;
+    expect(saved.profiles).toHaveLength(1);
+    expect(saved.profiles[0].patterns).toEqual(["*://example.com/*"]);
+    expect(saved.profiles[0].rules).toEqual([]);
+  });
+
+  it("explains a refused permission and creates no profile", async () => {
+    await loadModule(settingsWith());
+    permissionsRequest.mockResolvedValue(false);
+
+    getApp().querySelector<HTMLButtonElement>("button.primary")!.click();
+
+    await vi.waitFor(() => expect(getApp().querySelector(".section.error")).not.toBeNull());
+    expect(getApp().querySelector(".section.error")?.textContent).toBe(
+      "Without access to this site nothing can be applied to it.",
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(getApp().querySelector(".disclosure")).toBeNull();
+  });
+
   it("requests host permission and starts the picker when '+ Add rule' is clicked and permission is granted", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile()));

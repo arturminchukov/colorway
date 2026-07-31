@@ -72,10 +72,19 @@ function hostOf(url: string): string | null {
  * Adds a rule to the profile that already applies to this url, or creates a profile
  * for the url's host when none does. Pure: the input settings are never mutated.
  */
-export function addRuleForUrl(settings: Settings, url: string, rule: ColorRule): Settings {
+/**
+ * The profile a site gets when it has none yet: named after the host and matching
+ * just that host. Shared by the panel's "set up this site" button and by
+ * addRuleForUrl below, so a profile born from a picked rule and one born from the
+ * button are the same shape.
+ */
+export function createProfileForUrl(url: string): Profile | null {
   const host = hostOf(url);
-  if (!host) return settings;
+  if (!host) return null;
+  return { ...createProfile(host), patterns: [`*://${host}/*`] };
+}
 
+export function addRuleForUrl(settings: Settings, url: string, rule: ColorRule): Settings {
   // Use currentProfileForUrl, not pickProfile or findProfileForUrl alone: a rule
   // picked on the page must attach to whichever profile the panel is showing for this
   // host — the one painting it if any is, otherwise the one that would if re-enabled.
@@ -93,10 +102,9 @@ export function addRuleForUrl(settings: Settings, url: string, rule: ColorRule):
     };
   }
 
-  const created: Profile = {
-    ...createProfile(host),
-    patterns: [`*://${host}/*`],
-    rules: [rule],
-  };
-  return { ...settings, profiles: [...settings.profiles, created] };
+  // No profile matches yet: this site gets its first one, carrying the picked rule.
+  // A url with no host (an internal page) leaves the settings untouched.
+  const created = createProfileForUrl(url);
+  if (!created) return settings;
+  return { ...settings, profiles: [...settings.profiles, { ...created, rules: [rule] }] };
 }

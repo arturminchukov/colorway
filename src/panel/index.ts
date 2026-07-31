@@ -1,7 +1,7 @@
 import type { Runtime } from "webextension-polyfill";
 import type { PreviewMessage, RuleState, StatusResponse } from "../content/index";
 import { currentProfileForUrl, pickProfile } from "../core/matcher";
-import { addRuleForUrl, createRule, type Settings } from "../core/profile";
+import { addRuleForUrl, createProfileForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { browser, settingsRepo } from "../shared/browser";
 import { checkbox } from "../shared/controls";
@@ -315,6 +315,48 @@ function startPicking(url: string, tabId: number | undefined): void {
 }
 
 /**
+ * Gives a site its first profile, from the panel. Without this the panel is a dead
+ * end on any site it has never seen: every control below — the favicon block, the
+ * rules list, "+ Add rule" — lives behind a profile, and the only other place one can
+ * be created is the options page, by typing a match pattern by hand.
+ *
+ * permissions.request() must stay the first await after the click, exactly as in
+ * startPicking above: this click is the user gesture Firefox insists on. The profile
+ * is only created once access is granted — a profile for a site the extension cannot
+ * touch would sit there looking configured while painting nothing.
+ */
+function setUpSite(url: string, tabId: number | undefined): void {
+  if (tabId === undefined) return;
+  pickError = null;
+  pickErrorTabId = undefined;
+
+  const origin = `*://${new URL(url).hostname}/*`;
+  void browser.permissions
+    .request({ origins: [origin] })
+    .then((granted) => {
+      if (!granted) {
+        failPick("Without access to this site nothing can be applied to it.", tabId);
+        return;
+      }
+      const created = createProfileForUrl(url);
+      if (!created) return;
+      commitAndRender({ ...settings, profiles: [...settings.profiles, created] }, { id: tabId, url });
+    })
+    .catch((error: unknown) => {
+      failPick(`Could not set up this site: ${String(error)}`, tabId);
+    });
+}
+
+/** The way out of the window and into the full settings page. */
+function optionsLink(): HTMLButtonElement {
+  const link = document.createElement("button");
+  link.className = "link";
+  link.textContent = "All settings →";
+  link.addEventListener("click", () => void browser.runtime.openOptionsPage());
+  return link;
+}
+
+/**
  * What the tab reports about itself; it answers only where our content script runs.
  * A tab the extension has no host access to, or one that has not loaded the content
  * script yet, never replies — that is not an error, it just means no states are known.
@@ -475,12 +517,31 @@ async function render(): Promise<void> {
       note.textContent =
         broken > 0 ? `${broken} of ${profile.rules.length} rules are not painting` : "All rules painting";
     }
-    const link = document.createElement("button");
-    link.className = "link";
-    link.textContent = "All settings →";
-    link.addEventListener("click", () => void browser.runtime.openOptionsPage());
-    footer.append(note, link);
+    footer.append(note, optionsLink());
     body.append(footer);
+  } else {
+    // No profile matches this site yet. Everything above is gated on one existing, so
+    // without this the window would show a domain and nothing else — which is exactly
+    // what it did until a user reported it.
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "This site has no profile yet. Set it up to recolor it and mark its tab.";
+
+    const start = document.createElement("button");
+    start.className = "primary";
+    start.textContent = "Set up this site";
+    start.addEventListener("click", () => setUpSite(tab.url!, tab.id));
+
+    section.append(note, start);
+    app.append(section);
+
+    const footer = document.createElement("div");
+    footer.className = "footer";
+    footer.append(document.createElement("span"), optionsLink());
+    app.append(footer);
   }
 }
 
