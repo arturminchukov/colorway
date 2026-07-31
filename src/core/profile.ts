@@ -1,4 +1,4 @@
-import { pickProfile } from "./matcher";
+import { findProfileForUrl } from "./matcher";
 
 export type FaviconMode = "original" | "tinted" | "initials";
 
@@ -76,8 +76,11 @@ export function addRuleForUrl(settings: Settings, url: string, rule: ColorRule):
   const host = hostOf(url);
   if (!host) return settings;
 
-  // Reuse pickProfile so "the profile that applies" matches exactly what paints the page.
-  const target = pickProfile(url, settings.profiles);
+  // Use findProfileForUrl, not pickProfile: a rule picked on the page belongs to the
+  // profile that matches the host, even if that profile is currently switched off. Using
+  // pickProfile here would skip a disabled match and spawn a second, freshly-enabled
+  // profile for the same host instead of attaching to the one the panel already shows.
+  const target = findProfileForUrl(url, settings.profiles);
 
   if (target) {
     return {
