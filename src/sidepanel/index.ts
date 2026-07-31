@@ -214,6 +214,19 @@ function commitAndRender(next: Settings, tab: TabTarget): void {
 }
 
 /**
+ * Raises a pick failure for `tabId` and re-renders to show it. The three call sites
+ * below (permission refused, background couldn't inject, request itself threw) all
+ * need to set both pickError and pickErrorTabId together — see their doc comments
+ * above for why the pair must move in lockstep — so this is the one place that can
+ * set one without the other.
+ */
+function failPick(message: string, tabId: number): void {
+  pickError = message;
+  pickErrorTabId = tabId;
+  void render();
+}
+
+/**
  * permissions.request() must be the first await after the click: the panel is an
  * extension page and this click is the user gesture, which Firefox insists on.
  */
@@ -227,22 +240,16 @@ function startPicking(url: string, tabId: number | undefined): void {
     .request({ origins: [origin] })
     .then(async (granted) => {
       if (!granted) {
-        pickError = "Without access to this site the picker cannot run.";
-        pickErrorTabId = tabId;
-        void render();
+        failPick("Without access to this site the picker cannot run.", tabId);
         return;
       }
       const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
       if (started === false) {
-        pickError = "The picker cannot run on this tab.";
-        pickErrorTabId = tabId;
-        void render();
+        failPick("The picker cannot run on this tab.", tabId);
       }
     })
     .catch((error: unknown) => {
-      pickError = `Could not start the picker: ${String(error)}`;
-      pickErrorTabId = tabId;
-      void render();
+      failPick(`Could not start the picker: ${String(error)}`, tabId);
     });
 }
 
