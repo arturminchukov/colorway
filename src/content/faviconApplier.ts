@@ -1,5 +1,9 @@
-const OWN_ATTR = "data-color-vmui-icon";
-const ORIGINAL_REL_ATTR = "data-color-vmui-was-rel";
+// Exported so faviconTint.ts's pickIconHref can tell the extension's own injected
+// icon link apart from the site's original ones — including the site's links after
+// they've been neutralized below (rel moved into ORIGINAL_REL_ATTR) — instead of
+// re-reading whatever this applier itself last put in <head>.
+export const OWN_ATTR = "data-color-vmui-icon";
+export const ORIGINAL_REL_ATTR = "data-color-vmui-was-rel";
 
 export function createFaviconApplier(): { set(dataUrl: string | null): void; clear(): void } {
   let current: string | null = null;

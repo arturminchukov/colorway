@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ORIGINAL_REL_ATTR, OWN_ATTR } from "./faviconApplier";
 import { createFaviconTinter, pickIconHref } from "./faviconTint";
 
 describe("pickIconHref", () => {
@@ -26,6 +27,23 @@ describe("pickIconHref", () => {
 
   it("ignores links that are not icons", () => {
     document.head.innerHTML = `<link rel="stylesheet" href="/app.css">`;
+    expect(pickIconHref(document)).toBe(`${location.origin}/favicon.ico`);
+  });
+
+  it("skips the extension's own injected icon link and still finds the site's neutralized original", () => {
+    // The state createFaviconApplier() leaves <head> in after its first apply(): the
+    // site's own icon link has been neutralized (rel moved into ORIGINAL_REL_ATTR,
+    // see faviconApplier.ts), and the extension's own link now carries rel="icon"
+    // plus OWN_ATTR. Re-running `link[rel~="icon"]` alone from here on would pick up
+    // the extension's own icon instead of the site's.
+    document.head.innerHTML =
+      `<link ${ORIGINAL_REL_ATTR}="icon" href="/brand.png">` +
+      `<link rel="icon" ${OWN_ATTR} href="data:image/png;base64,AAA">`;
+    expect(pickIconHref(document)).toBe(`${location.origin}/brand.png`);
+  });
+
+  it("falls back to /favicon.ico rather than the extension's own link when no site original remains", () => {
+    document.head.innerHTML = `<link rel="icon" ${OWN_ATTR} href="data:image/png;base64,AAA">`;
     expect(pickIconHref(document)).toBe(`${location.origin}/favicon.ico`);
   });
 });

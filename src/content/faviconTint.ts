@@ -1,8 +1,23 @@
+import { ORIGINAL_REL_ATTR, OWN_ATTR } from "./faviconApplier";
+
 const ICON_SIZE = 64;
 
-/** Largest declared icon, else the conventional location. */
-export function pickIconHref(doc: Document): string | null {
-  const links = [...doc.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')];
+/**
+ * Largest declared icon, else the conventional location. Must find the site's own
+ * icon links, not the extension's — createFaviconApplier() (see faviconApplier.ts)
+ * injects its own `[data-color-vmui-icon]` link and neutralizes the site's originals
+ * by moving their `rel` into `[data-color-vmui-was-rel]`, so after the first apply
+ * the site's links no longer match `link[rel~="icon"]` at all. Re-reading only that
+ * selector from the second apply onward would silently degrade every site to
+ * /favicon.ico; picking up the extension's own link instead would tint an
+ * already-tinted (or already-lettered) icon. Both are excluded/included explicitly
+ * here so this keeps finding the site's real icon across repeated applies.
+ */
+export function pickIconHref(doc: Document): string {
+  const links = [
+    ...doc.querySelectorAll<HTMLLinkElement>(`link[rel~="icon"]:not([${OWN_ATTR}])`),
+    ...doc.querySelectorAll<HTMLLinkElement>(`link[${ORIGINAL_REL_ATTR}]`),
+  ];
 
   const largest = links
     .map((link) => {
@@ -64,8 +79,6 @@ export function createFaviconTinter(render: TintRenderer = renderWithCanvas): {
   return {
     async tint(color) {
       const href = pickIconHref(document);
-      if (!href) return null;
-
       const key = `${href}|${color}`;
       const cached = cache.get(key);
       if (cached !== undefined) return cached;
