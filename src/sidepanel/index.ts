@@ -1,6 +1,6 @@
 import type { Runtime } from "webextension-polyfill";
 import type { PreviewMessage, RuleState, StatusResponse } from "../content/index";
-import { pickProfile } from "../core/matcher";
+import { findProfileForUrl, pickProfile } from "../core/matcher";
 import { addRuleForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { browser, settingsRepo } from "../shared/browser";
@@ -252,8 +252,15 @@ async function render(): Promise<void> {
     return;
   }
 
-  const profile = pickProfile(tab.url, settings.profiles);
-  app.append(renderTabPreview({ profile, icon: tab.icon, title: tab.title }));
+  // What actually paints the page — used for the tab-strip preview only, so a
+  // disabled profile previews honestly as "not applied". Everything the panel lets
+  // the user edit uses `profile` below instead, so a disabled profile stays reachable.
+  const paintingProfile = pickProfile(tab.url, settings.profiles);
+  app.append(renderTabPreview({ profile: paintingProfile, icon: tab.icon, title: tab.title }));
+
+  // What the panel renders and edits: matched by pattern regardless of `enabled`, so
+  // turning a profile off does not strand the panel with no way to turn it back on.
+  const profile = findProfileForUrl(tab.url, settings.profiles);
 
   const top = document.createElement("div");
   top.className = "section row";
@@ -279,7 +286,23 @@ async function render(): Promise<void> {
   }
 
   if (profile) {
-    app.append(
+    // A disabled profile stays fully editable, just visibly marked as off — the
+    // checkbox above (outside this wrapper) is what turns it back on. Appended to
+    // `app` right away (not held back until every child is built): the favicon
+    // section below renders synchronously, so it must reach the DOM before the
+    // `await tabStatus()` further down, exactly like every other section here.
+    const body = document.createElement("div");
+    if (!profile.enabled) body.className = "profile-off";
+    app.append(body);
+
+    if (!profile.enabled) {
+      const note = document.createElement("p");
+      note.className = "section muted";
+      note.textContent = "This profile is off — nothing below applies until you turn it back on above.";
+      body.append(note);
+    }
+
+    body.append(
       renderFaviconSection({
         profile,
         onPatch: (patch) => commit(updateProfile(settings, profile.id, patch), tab),
@@ -297,10 +320,10 @@ async function render(): Promise<void> {
       note.className = "section muted";
       note.textContent =
         "This site's icon cannot be recolored — it comes from another domain — so the letters are used instead.";
-      app.append(note);
+      body.append(note);
     }
 
-    app.append(
+    body.append(
       renderRulesSection({
         profile,
         states,
@@ -341,7 +364,7 @@ async function render(): Promise<void> {
     link.textContent = "All settings →";
     link.addEventListener("click", () => void browser.runtime.openOptionsPage());
     footer.append(note, link);
-    app.append(footer);
+    body.append(footer);
   }
 }
 

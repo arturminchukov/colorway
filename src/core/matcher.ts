@@ -54,3 +54,16 @@ export function pickProfile(url: string, profiles: Profile[]): Profile | null {
   }
   return null;
 }
+
+/**
+ * Like pickProfile, but ignores `enabled` — for UI that must still show and let the
+ * user re-enable a profile that currently matches but is turned off. Never use this
+ * for anything that actually paints a page; that must stay through pickProfile, so a
+ * disabled profile keeps behaving as "not applied".
+ */
+export function findProfileForUrl(url: string, profiles: Profile[]): Profile | null {
+  for (const profile of profiles) {
+    if (profile.patterns.some((pattern) => matchesPattern(pattern, url))) return profile;
+  }
+  return null;
+}

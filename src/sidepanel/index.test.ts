@@ -733,6 +733,45 @@ describe("sidepanel: pick error follows its own tab", () => {
   });
 });
 
+describe("sidepanel: disabling a matching profile does not strand the panel", () => {
+  it("keeps the toggle in the DOM, off, and able to turn the profile back on", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    // Fake timers, drained at the end of the test (see other describe blocks in this
+    // file for the same convention): commit()'s 300ms debounce would otherwise leave a
+    // real setTimeout pending past the end of this test, firing during a later one.
+    vi.useFakeTimers();
+
+    const toggle = () => getApp().querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(toggle().checked).toBe(true);
+
+    // Turn the profile off — a click a user would make from the panel itself.
+    toggle().checked = false;
+    toggle().dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0][0] as Settings).profiles[0].enabled).toBe(false);
+
+    // The panel must still show the toggle — live and reflecting "off" — instead of
+    // collapsing to a bare tab preview with no way back.
+    expect(toggle()).not.toBeNull();
+    expect(toggle().checked).toBe(false);
+
+    // The rest of the panel (rules, favicon, footer) must still be reachable too, not
+    // just the toggle in isolation.
+    expect(addRuleButton()).not.toBeNull();
+
+    // A second click turns it back on.
+    toggle().checked = true;
+    toggle().dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect((save.mock.calls[1][0] as Settings).profiles[0].enabled).toBe(true);
+    expect(toggle().checked).toBe(true);
+  });
+});
+
 describe("sidepanel: overlapping renders", () => {
   it("keeps only the newer render's rules section and footer when an older render's tabStatus() resolves later", async () => {
     const rule = createRule(".a");

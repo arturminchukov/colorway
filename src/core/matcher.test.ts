@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Profile } from "./profile";
-import { matchesPattern, pickProfile } from "./matcher";
+import { findProfileForUrl, matchesPattern, pickProfile } from "./matcher";
 
 const profile = (over: Partial<Profile>): Profile => ({
   id: "id",
@@ -76,5 +76,24 @@ describe("pickProfile", () => {
     const bad = profile({ id: "bad", patterns: ["))("] });
     const good = profile({ id: "good", patterns: ["*://vm.corp/*"] });
     expect(pickProfile("https://vm.corp/vmui/", [bad, good])?.id).toBe("good");
+  });
+});
+
+describe("findProfileForUrl", () => {
+  it("matches a disabled profile too, unlike pickProfile", () => {
+    const off = profile({ id: "off", enabled: false, patterns: ["*://vm.corp/*"] });
+    expect(findProfileForUrl("https://vm.corp/vmui/", [off])?.id).toBe("off");
+    expect(pickProfile("https://vm.corp/vmui/", [off])).toBeNull();
+  });
+
+  it("returns the first matching profile in list order regardless of enabled state", () => {
+    const a = profile({ id: "a", enabled: false, patterns: ["*://vm.corp/*"] });
+    const b = profile({ id: "b", patterns: ["*://vm.corp/*"] });
+    expect(findProfileForUrl("https://vm.corp/vmui/", [a, b])?.id).toBe("a");
+  });
+
+  it("returns null when nothing matches", () => {
+    const a = profile({ patterns: ["*://other.corp/*"] });
+    expect(findProfileForUrl("https://vm.corp/vmui/", [a])).toBeNull();
   });
 });
