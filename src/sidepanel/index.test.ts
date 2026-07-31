@@ -946,6 +946,27 @@ describe("sidepanel: the painting profile wins over an earlier disabled match", 
   });
 });
 
+describe("sidepanel: the favicon disclosure does not carry its open state to another tab", () => {
+  it("closes when the panel switches to a different tab", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    // A wildcard profile so both tab 1's and tab 2's site render a panel.
+    await loadModule(settingsWith(profile()));
+
+    getApp().querySelector<HTMLButtonElement>(".disclosure")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true");
+
+    // Switch to a different tab (a different site, different id).
+    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
+    activatedListener()();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
 describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
   it("does not rebuild #app for an update event about a background tab", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });

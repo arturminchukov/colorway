@@ -31,9 +31,12 @@ let expandedRuleId: string | null = null;
 let faviconSectionExpanded = false;
 
 // The id of the tab the last completed render() showed, or undefined before the
-// first one. Lets the tabs.onUpdated listener below tell "the tab this panel is
-// showing" apart from an unrelated tab of the same `active: true` shape in another
-// window (see its own comment).
+// first one. Two things key off this: (a) render() itself resets
+// faviconSectionExpanded when this changes, since that boolean is scoped to the
+// panel rather than to a site and would otherwise carry site A's open disclosure
+// onto site B; (b) the tabs.onUpdated listener below, which needs to tell "the tab
+// this panel is showing" apart from an unrelated tab of the same `active: true`
+// shape in another window (see its own comment).
 let currentTabId: number | undefined;
 
 // Set when starting the picker fails: permission refused, or the background could
@@ -285,7 +288,16 @@ async function render(): Promise<void> {
   const generation = ++renderGeneration;
   const tab = await currentTab();
   if (generation !== renderGeneration) return; // superseded before touching the DOM
+
+  if (tab.id !== currentTabId) {
+    // Switched to a different tab: expandedRuleId doesn't need this — its ids never
+    // collide across profiles, so it simply stops matching anything — but
+    // faviconSectionExpanded is a plain boolean and would otherwise leave site A's
+    // open disclosure open on site B.
+    faviconSectionExpanded = false;
+  }
   currentTabId = tab.id;
+
   app.replaceChildren();
 
   if (!tab.url || !/^https?:/.test(tab.url)) {
