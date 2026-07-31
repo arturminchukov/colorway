@@ -86,6 +86,34 @@ describe("options: saving a card preserves its rules", () => {
     expect(saved.profiles[0].rules).toEqual([rule]);
   });
 
+  it("keeps a rule added elsewhere (e.g. the side panel) while the card is dirty, instead of overwriting it with the stale closure", async () => {
+    // Regression guard for the actual finding: the card became dirty (an edit unrelated
+    // to rules), then a rule was added elsewhere while this card stayed on screen and
+    // stale-by-design (see the storage listener at the bottom of index.ts). Saving the
+    // card must not resurrect the pre-rule `rules` array from the render()-time closure.
+    const original = profile({ rules: [] });
+    await loadModule(settingsWith(original));
+    const card = cards()[0];
+
+    // Dirties the card via a field it actually renders, unrelated to rules.
+    card.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+
+    // A rule lands in storage while the card is dirty — the storage listener updates
+    // `settings` but deliberately does not rebuild this dirty card. Same profile id as
+    // `original`: this is the side panel editing the same profile, not a different one.
+    const addedRule = createRule(".added-elsewhere");
+    load.mockResolvedValueOnce(settingsWith({ ...original, rules: [addedRule] }));
+    storageListener()({ [SETTINGS_KEY]: {} }, "local");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    buttonNamed(card, "Save").click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+    const saved = save.mock.calls[0][0] as Settings;
+    expect(saved.profiles[0].rules).toEqual([addedRule]);
+  });
+
   it("does not drop a profile's rules for the card whose save is answered by a stranded-profile branch", async () => {
     // Regression guard for the `rules: profile.rules` wiring itself, independent of
     // the happy path above: a profile deleted elsewhere must not resurrect with an

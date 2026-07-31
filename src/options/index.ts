@@ -147,17 +147,9 @@ function renderCard(profile: Profile): HTMLElement {
   card.append(buttons, status);
 
   save.addEventListener("click", () => {
-    const next: Profile = {
-      ...profile,
-      enabled: enabled.checked,
-      patterns: readPatterns(patterns),
-      rules: profile.rules,
-    };
-    for (const [key, input] of inputs) {
-      (next as unknown as Record<string, string>)[key] = input.value;
-    }
+    const nextPatterns = readPatterns(patterns);
 
-    if (next.patterns.length === 0) {
+    if (nextPatterns.length === 0) {
       status.className = "error";
       status.textContent = "At least one URL pattern is required";
       return;
@@ -171,24 +163,40 @@ function renderCard(profile: Profile): HTMLElement {
     // permissions.request must be the first await after the user gesture,
     // otherwise Firefox rejects it as a non-user action.
     browser.permissions
-      .request({ origins: next.patterns })
+      .request({ origins: nextPatterns })
       .then(async (granted) => {
         // `settings` follows storage (see the storage.onChanged listener below), so the
-        // profile may have been deleted elsewhere while this card stayed on screen.
-        // Writing it back would resurrect it, and reporting "Saved" for a write that
-        // stored nothing would be a lie. The access just granted is orphaned as well.
-        const previous = settings.profiles.find((item) => item.id === next.id);
+        // profile may have been deleted elsewhere while this card stayed on screen, or
+        // may carry fields (rules, faviconMode) this card doesn't show that changed
+        // elsewhere — from the side panel, in particular. `next` is therefore built from
+        // this freshly-read `previous`, not from the `profile` closure captured when
+        // renderCard() ran, and only the fields the card actually renders are
+        // overwritten with what's on screen. Writing a resurrected/stale profile back
+        // would also be a lie about what was saved. The access just granted is orphaned
+        // as well when the profile is gone.
+        const previous = settings.profiles.find((item) => item.id === profile.id);
         if (!previous) {
           // The profile is gone, so this card's input can never be saved. Drop its id
           // for the same reason the delete handler does: an id no one can clear keeps
           // dirtyProfileIds non-empty and silently disables every deferred redraw.
-          dirtyProfileIds.delete(next.id);
-          const strandedError = await revokeOrphaned(patternsToRevoke(next, settings.profiles));
+          dirtyProfileIds.delete(profile.id);
+          const strandedError = await revokeOrphaned(
+            patternsToRevoke({ ...profile, patterns: nextPatterns }, settings.profiles),
+          );
           status.className = "error";
           status.textContent = strandedError
             ? `Profile deleted elsewhere — nothing to save; ${strandedError}`
             : "Profile deleted elsewhere — nothing to save";
           return;
+        }
+
+        const next: Profile = {
+          ...previous,
+          enabled: enabled.checked,
+          patterns: nextPatterns,
+        };
+        for (const [key, input] of inputs) {
+          (next as unknown as Record<string, string>)[key] = input.value;
         }
 
         const nextSettings: Settings = {
