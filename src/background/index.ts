@@ -63,7 +63,7 @@ type StartPickerRequest = { type: "color-vmui:start-picker"; tabId: number };
 /**
  * The picker is a separate bundle injected on demand, so the always-on content
  * script stays small. Injection needs scripting permission for the tab, which the
- * side panel has just obtained from the user.
+ * panel window has just obtained from the user.
  */
 browser.runtime.onMessage.addListener((message: unknown): Promise<boolean> | undefined => {
   const request = message as StartPickerRequest;

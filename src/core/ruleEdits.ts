@@ -1,7 +1,7 @@
 import type { ColorRule, Profile, Settings } from "./profile";
 
 /**
- * Pure edits of the settings object. The side panel is the only writer of rules and
+ * Pure edits of the settings object. The panel window is the only writer of rules and
  * favicon settings, and this is where its whole content logic lives — the panel itself
  * keeps only markup and handlers, so the risky part stays testable without a DOM.
  * Every function returns fresh objects; the input is never mutated.

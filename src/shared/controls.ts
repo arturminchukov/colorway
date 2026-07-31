@@ -1,4 +1,4 @@
-/** Shared by the side panel and the options page, so the two cannot drift apart. */
+/** Shared by the panel window and the options page, so the two cannot drift apart. */
 export function labelled(text: string, control: HTMLElement): HTMLLabelElement {
   const label = document.createElement("label");
   label.append(text, control);

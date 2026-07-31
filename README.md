@@ -10,12 +10,12 @@ A profile is bound to URL patterns and holds:
 - a prefix for the tab title.
 
 Rules are added by picking: hover an element the way you would in devtools, click it, and the rule
-appears in the side panel with its color controls ready.
+appears in the window with its color controls ready.
 
 ## Requirements
 
 - Node 20.19+ (the floor comes from Vite's and ESLint's `engines`), Yarn 4
-- Chrome 116+ or Firefox 128 ESR+
+- Chrome 102+ or Firefox 128 ESR+
 
 ## Build
 
@@ -37,17 +37,20 @@ start the picker or save a profile on the options page.
 
 ## Using it
 
-1. Open a site and click the extension icon — the side panel opens and shows the site's domain.
+1. Open a site and click the extension icon — a draggable window opens on the page and shows the
+   site's domain. Drag it by its header to move it anywhere on the page; the position is remembered
+   and reused the next time you open the window, on any site.
 2. Press **+ Add rule** and grant access to the site.
 3. Hover: the element under the cursor is outlined with its tag and size. `Esc` at this point leaves
    the picker without adding anything.
-4. Click it. The picker's only job is reporting the selector to the panel and stopping — it has no
-   floating UI of its own beyond the outline, and it never writes settings itself. The panel creates
+4. Click it. The picker's only job is reporting the selector to the window and stopping — it has no
+   floating UI of its own beyond the outline, and it never writes settings itself. The window creates
    the rule and opens it expanded, with its selector and colors ready.
 5. Pick a background and/or a text color. The page repaints immediately through a preview channel;
-   the edit itself is written to storage 300ms after you stop typing or dragging, so the panel never
-   rebuilds a field you're still using. Closing the panel flushes a pending save on a best-effort
-   basis — the browser can still tear the page down first.
+   the edit itself is written to storage 300ms after you stop typing or dragging, so the window never
+   rebuilds a field you're still using. Its × button waits for a pending save to land before the
+   window disappears; reloading the page tears the window down along with everything else, and
+   still relies on the browser firing `pagehide` in time to flush a very recent edit.
 6. Each rule shows a status dot: painting, matching nothing right now, will never paint (no color
    set, or an unusable selector), or unknown. Unknown means the page hasn't answered yet — it hasn't
    loaded the content script, or the extension has no access to it — and is never counted as broken;
@@ -58,11 +61,11 @@ start the picker or save a profile on the options page.
 `Original` leaves the site icon untouched. `Tinted` keeps its shape and refills it with your color,
 so the site stays recognisable. `Initials` replaces it with one or two letters on a color. When an
 icon cannot be recolored — it comes from another domain without CORS, for instance — the extension
-falls back to letters and the panel explains why.
+falls back to letters and the window explains why.
 
 The options page lists every profile: its name, enabled toggle, URL patterns, tab prefix, favicon
 letters and color, and how many rules it has. All of that is editable there except the rules
-themselves — rules are only added and edited in the side panel, on the site they belong to.
+themselves — rules are only added and edited in the window, on the site they belong to.
 
 ## Development
 
@@ -78,12 +81,13 @@ apply must not mutate the region the applier itself observes, or the page spins 
 
 ## Manual checklist
 
-1. Clicking the toolbar icon opens the side panel; it shows the current site's domain.
+1. Clicking the toolbar icon opens a draggable window on the page; it shows the current site's
+   domain. Dragging it by its header moves it, and the position is remembered on the next site too.
 2. The picker outlines elements with tag and size; `Esc` leaves without adding a rule.
-3. A picked element appears in the panel immediately, expanded.
+3. A picked element appears in the window immediately, expanded.
 4. Dragging a color updates the page with no lag, and the color survives a page reload.
-5. All three favicon modes do what they say; the tab preview in the panel matches the real tab.
-6. A cross-origin icon falls back to letters, and the panel explains why.
+5. All three favicon modes do what they say; the tab preview in the window matches the real tab.
+6. A cross-origin icon falls back to letters, and the window explains why.
 7. Turning the profile off restores the site completely.
 8. A rule with a stale selector is marked as not painting; a rule the page hasn't answered for yet
    is marked unknown, not broken.
@@ -95,13 +99,15 @@ Handy for checking: `https://play.victoriametrics.com/select/0/prometheus/vmui/`
 
 - If a server sends a CSP whose `img-src` omits `data:`, the generated favicon will not apply.
 - The picker cannot run on browser-internal pages (`chrome://`, store pages, PDFs).
-- Without the `tabs` permission, the panel can read a tab's address only for a site it already has
+- Without the `tabs` permission, the window can read a tab's address only for a site it already has
   host access to, or right after the toolbar icon was clicked on it (the momentary `activeTab`
   grant) — switching to an unconfigured tab afterward without clicking its icon again shows the
   placeholder message instead.
 - A save that fails (storage quota, extension context invalidated, ...) is not surfaced anywhere in
-  the side panel; there is no error surface for it there.
-- Closing the panel flushes a pending save only on a best-effort basis — the browser can still kill
-  the page first, in which case the last edit is lost.
+  the window; there is no error surface for it there.
+- Its × button (and opening a second window via the toolbar icon, which closes the first one) waits
+  briefly for a pending save to land before the window is removed. Reloading or navigating away is a
+  different path — the same best-effort `pagehide` flush as before is all that covers it, and a fast
+  enough reload can still lose an edit typed in the last 300ms.
 - The extension ships no icons of its own: not needed for a local build, required for store listings.
 - Publishing to the Chrome Web Store and AMO is not set up.

@@ -128,8 +128,8 @@ function renderCard(profile: Profile): HTMLElement {
   rulesNote.className = "muted";
   rulesNote.textContent =
     profile.rules.length === 0
-      ? "No rules. Open the site and use the side panel to add them."
-      : `${profile.rules.length} rule(s). Edit them in the side panel on that site.`;
+      ? "No rules. Click the extension's toolbar icon on the site to add them."
+      : `${profile.rules.length} rule(s). Edit them in the window opened from the toolbar icon on that site.`;
   card.append(rulesNote);
 
   const status = document.createElement("p");

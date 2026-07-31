@@ -19,10 +19,11 @@ const base = {
 const overrides = {
   chrome: {
     background: { service_worker: "background.js" },
-    // structuredClone (settingsRepo.ts) is this extension's actual floor: it needs
-    // Chrome 98, already above what the MV3 web_accessible_resources object form
-    // above requires (96). Nothing left here needs the 116 the side panel used to.
-    minimum_chrome_version: "98",
+    // structuredClone (settingsRepo.ts) needs Chrome 98, already above what the MV3
+    // web_accessible_resources object form above requires (96) — but
+    // optional_host_permissions, used above, is the real floor: it shipped in
+    // Chrome 102, and nothing else here needs the 116 the side panel used to.
+    minimum_chrome_version: "102",
   },
   firefox: {
     background: { scripts: ["background.js"] },

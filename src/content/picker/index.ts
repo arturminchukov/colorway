@@ -14,7 +14,7 @@ function isOwnUi(target: EventTarget | null): boolean {
 
 /**
  * One press of "Add rule" picks one element. The picker owns no storage and no UI
- * beyond the outline: it reports the selector to the side panel, which creates the
+ * beyond the outline: it reports the selector to the panel window, which creates the
  * rule. That leaves exactly one writer of site data and removes the races the
  * floating panel used to make possible.
  */

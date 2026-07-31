@@ -139,13 +139,15 @@ describe("options: saving a card preserves its rules", () => {
 describe("options: rule count note replaces the editor", () => {
   it("tells the user there are no rules yet and where to add them", async () => {
     await loadModule(settingsWith(profile({ rules: [] })));
-    expect(cards()[0].textContent).toContain("No rules. Open the site and use the side panel to add them.");
+    expect(cards()[0].textContent).toContain("No rules. Click the extension's toolbar icon on the site to add them.");
   });
 
-  it("shows the rule count and points at the side panel", async () => {
+  it("shows the rule count and points at the toolbar icon", async () => {
     const rules = [createRule(".a"), createRule(".b")];
     await loadModule(settingsWith(profile({ rules })));
-    expect(cards()[0].textContent).toContain("2 rule(s). Edit them in the side panel on that site.");
+    expect(cards()[0].textContent).toContain(
+      "2 rule(s). Edit them in the window opened from the toolbar icon on that site.",
+    );
   });
 
   it("renders no per-rule editor inside the card", async () => {
