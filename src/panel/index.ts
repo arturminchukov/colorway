@@ -30,22 +30,13 @@ let expandedRuleId: string | null = null;
 // had just appeared.
 let faviconSectionExpanded = false;
 
-// The id of the tab the last completed render() showed, or undefined before the
-// first one. Two things key off this: (a) render() itself resets
-// faviconSectionExpanded when this changes, since that boolean is scoped to the
-// panel rather than to a site and would otherwise carry site A's open disclosure
-// onto site B; (b) the tabs.onUpdated listener below, which needs to tell "the tab
-// this panel is showing" apart from an unrelated tab of the same `active: true`
-// shape in another window (see its own comment).
-let currentTabId: number | undefined;
-
 // Set when starting the picker fails: permission refused, or the background could
-// not inject it. Purely local UI state, like expandedRuleId above. Scoped to the tab
-// it was raised for via pickErrorTabId below, so render() only shows it while that
-// same tab is the one on screen — an error from site A must not follow the user to
-// unrelated site B on a tab switch. Cleared at the start of every new attempt and
-// again the moment a pick actually creates a rule for the same tab, so a failure
-// from an earlier attempt never lingers on screen next to a later success.
+// not inject it. Purely local UI state, like expandedRuleId above. Scoped via
+// pickErrorTabId below to the one tab this window ever shows, so render() only
+// shows it once an attempt has actually raised it for that tab — not before.
+// Cleared at the start of every new attempt and again the moment a pick actually
+// creates a rule, so a failure from an earlier attempt never lingers on screen
+// next to a later success.
 let pickError: string | null = null;
 
 // The tab startPicking() was raised the current pickError for. See render(), which
@@ -65,10 +56,10 @@ let pendingSave: Settings | null = null;
 let pendingExternalUpdate = false;
 
 // Bumped at the start of every render() call and captured locally as `generation`.
-// render() now awaits twice (currentTab(), tabStatus()), and tabs.onActivated /
-// tabs.onUpdated fire render() repeatedly and unconditionally — tabs.onUpdated in
-// particular fires several times during a single page load. Two overlapping calls can
-// therefore resume in either order; without this guard, whichever one resumes last
+// render() now awaits twice (currentTab(), tabStatus()), and tabs.onUpdated fires
+// render() repeatedly and unconditionally — several times during a single page load.
+// Two overlapping calls can therefore resume in either order; without this guard,
+// whichever one resumes last
 // would append its rules section and footer (built from its own closure over
 // profile/settings/states) on top of whatever the other call already put in #app,
 // producing duplicate sections or a stale rule list next to the current one. Each
@@ -76,14 +67,45 @@ let pendingExternalUpdate = false;
 // abandons the render without touching the DOM — dropped, not queued or delayed.
 let renderGeneration = 0;
 
+/** Parses the `tabId` query parameter; undefined for anything missing or not a non-negative integer. */
+function parseTabId(search: string): number | undefined {
+  const raw = new URLSearchParams(search).get("tabId");
+  if (!raw) return undefined;
+  const id = Number(raw);
+  return Number.isInteger(id) && id >= 0 ? id : undefined;
+}
+
 /**
- * Without the "tabs" permission the active tab's url is readable only for sites the
- * extension already has host access to, or for the tab whose toolbar icon was just
- * clicked (activeTab). Saying so beats rendering an empty panel.
+ * The tab id panelFrame.ts passed as `?tabId=N` when it created this window's iframe
+ * (see its own requestTabId()/open()). Read once, at load: this window lives inside
+ * exactly one tab's page for its whole life, so there is nothing to re-derive later
+ * the way a side panel once had to on every tab switch. Undefined for a missing or
+ * unparseable parameter — currentTab() below treats that the same as a tab that no
+ * longer exists.
+ */
+const ownTabId = parseTabId(window.location.search);
+
+/**
+ * This window's own tab, resolved via `browser.tabs.get` rather than a query: the
+ * window belongs to exactly one tab (ownTabId, above), so there is nothing left to
+ * disambiguate the way `{ active: true, currentWindow: true }` once did for a side
+ * panel that outlived tab switches. Without the "tabs" permission, url/title/
+ * favIconUrl on the reply are populated only for sites the extension already has
+ * host access to, or for the tab whose toolbar icon was just clicked (activeTab) —
+ * exactly the tab this window was opened for. A missing/unparseable id, or a tab
+ * that no longer exists (closed between the iframe being created and this
+ * resolving), degrades to the same empty result render() already treats as
+ * "nothing to work with", rather than throwing.
  */
 async function currentTab(): Promise<{ id?: number; url?: string; title?: string; icon?: string }> {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  return { id: tab?.id, url: tab?.url, title: tab?.title, icon: tab?.favIconUrl };
+  if (ownTabId === undefined) return {};
+  try {
+    const tab = await browser.tabs.get(ownTabId);
+    return { id: tab.id, url: tab.url, title: tab.title, icon: tab.favIconUrl };
+  } catch {
+    // No tab with this id anymore.
+    return {};
+  }
 }
 
 /**
@@ -98,10 +120,9 @@ type TabTarget = { id?: number; url?: string };
  * The debounced save in commit() below makes it permanent; until then this is the
  * only thing that makes a color drag visible without the 300ms lag.
  *
- * Takes the tab explicitly rather than querying "the active tab" at send time: the
- * caller (a field handler built inside render(), or the picked-message listener)
- * already knows exactly which tab it is editing, and the panel outlives tab
- * switches — querying again here could land on a tab the user has since switched to.
+ * Takes the tab explicitly rather than re-resolving it at send time: the caller (a
+ * field handler built inside render(), or the picked-message listener) already
+ * knows exactly which tab it is editing.
  */
 function sendPreview(next: Settings, tab: TabTarget): void {
   if (tab.id === undefined || !tab.url) return;
@@ -187,15 +208,17 @@ function commit(next: Settings, tab: TabTarget): void {
 }
 
 /**
- * The side panel's page can be torn down (tab closed, panel closed, browser exit)
- * before the 300ms debounce timer in commit() fires. Left alone, settingsRepo.save()
- * would simply never run: storage.onChanged never reaches the content script, and the
- * preview commit() already painted via sendPreview() (see applyPreview in
- * content/index.ts) is never replaced by the real, saved value — the tab keeps
- * showing colors that were never actually saved.
+ * This window's page can be torn down (its close button clicked, the tab closed,
+ * browser exit) before the 300ms debounce timer in commit() fires. Left alone,
+ * settingsRepo.save() would simply never run: storage.onChanged never reaches the
+ * content script, and the preview commit() already painted via sendPreview() (see
+ * applyPreview in content/index.ts) is never replaced by the real, saved value — the
+ * tab keeps showing colors that were never actually saved. This matters more here
+ * than it ever did for the side panel this replaced: an injected window is closed by
+ * the user far more casually and far more often than a side panel ever was.
  *
- * `pagehide` is the right signal for this, not `visibilitychange`: a side panel can
- * become hidden (another panel opened, DevTools focused, ...) without being
+ * `pagehide` is the right signal for this, not `visibilitychange`: this window can
+ * become hidden (its tab backgrounded, DevTools focused, ...) without being
  * destroyed, and flushing early there would just be a harmless no-op deviation from
  * the debounce, not a fix for anything — `pagehide` is what actually means the page
  * is going away.
@@ -205,8 +228,8 @@ function commit(next: Settings, tab: TabTarget): void {
  * for the same snapshot.
  *
  * Best-effort: the browser can still kill the page before this async save settles, so
- * this reduces the window where a stale preview survives the panel — it does not
- * close it entirely.
+ * this reduces the window where a stale preview survives — it does not close it
+ * entirely.
  */
 function flushPendingSave(): void {
   if (saveTimer === undefined || pendingSave === null) return;
@@ -288,15 +311,6 @@ async function render(): Promise<void> {
   const generation = ++renderGeneration;
   const tab = await currentTab();
   if (generation !== renderGeneration) return; // superseded before touching the DOM
-
-  if (tab.id !== currentTabId) {
-    // Switched to a different tab: expandedRuleId doesn't need this — its ids never
-    // collide across profiles, so it simply stops matching anything — but
-    // faviconSectionExpanded is a plain boolean and would otherwise leave site A's
-    // open disclosure open on site B.
-    faviconSectionExpanded = false;
-  }
-  currentTabId = tab.id;
 
   app.replaceChildren();
 
@@ -434,21 +448,17 @@ async function render(): Promise<void> {
   }
 }
 
-// The panel outlives tab switches, so it re-reads the tab whenever the user moves.
-browser.tabs.onActivated.addListener(() => void render());
-// Fires for every tab in every window, several times over a single page load — not
-// just the one on screen. Re-rendering unconditionally would rebuild #app (kicking
-// focus out of whatever the user is typing into) for activity in a completely
-// unrelated background tab, reintroducing from outside exactly what the commit/
-// commitAndRender split exists to prevent. `tab.active` alone is not enough to scope
-// this down: it means "active in ITS window", but the panel queries `{ active: true,
-// currentWindow: true }` (see currentTab() above) and each window has its own panel
-// instance, so a page loading in another window's foreground tab is `tab.active` too
-// and would still kick focus out of this panel. Comparing the event's tabId against
-// currentTabId (the id this panel's last render actually showed) identifies the
-// right tab without needing the "tabs" permission.
-browser.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
-  if (tab.active && tabId === currentTabId) void render();
+// Unlike a side panel, this window cannot outlive a tab switch — it lives inside one
+// page and is torn down with it — so there is no "the user moved to another tab" case
+// left to react to; tabs.onActivated is gone entirely. The only thing left to watch
+// for is this window's own tab changing under it: its title, favicon, or url
+// navigating elsewhere. tabs.onUpdated fires for every tab in every window, several
+// times over a single page load — not just this one — so it must filter to ownTabId:
+// without that, an unrelated tab's load would rebuild #app (kicking focus out of
+// whatever the user is typing into), reintroducing from outside exactly what the
+// commit/commitAndRender split exists to prevent.
+browser.tabs.onUpdated.addListener((tabId) => {
+  if (tabId === ownTabId) void render();
 });
 
 type PickedMessage = { type: "color-vmui:picked"; selector: string };
@@ -464,11 +474,10 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   if (picked?.type !== "color-vmui:picked") return undefined;
 
   // sender.tab identifies the tab the picker actually ran in, synchronously and with
-  // no query involved. Re-deriving "the active tab" via currentTab() instead would be
-  // wrong: the panel survives tab switches, so a switch between the picker's click and
-  // this listener running could attach the rule to whatever tab is active now, not the
-  // one the user was picking on. No usable sender tab means there is nothing safe to
-  // attach the rule to, so do nothing rather than guessing.
+  // no async currentTab() round trip involved — a plain, direct fact about where the
+  // message came from, rather than something this window has to resolve for itself.
+  // No usable sender tab means there is nothing safe to attach the rule to, so do
+  // nothing rather than guessing.
   const tabId = sender.tab?.id;
   const tabUrl = sender.tab?.url;
   if (tabId === undefined || !tabUrl) return undefined;

@@ -4,13 +4,12 @@ import type { StatusResponse } from "../content/index";
 import { createRule, type Profile, type Settings } from "../core/profile";
 
 // index.ts imports `settingsRepo` and `browser` from here; stubbing both lets the
-// test drive the module's storage.onChanged listener and tabs.query result directly,
+// test drive the module's storage.onChanged listener and tabs.get result directly,
 // the same pattern src/content/index.test.ts uses.
 const { load, save } = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 const {
   storageOnChangedAddListener,
-  tabsQuery,
-  tabsOnActivatedAddListener,
+  tabsGet,
   tabsOnUpdatedAddListener,
   tabsSendMessage,
   permissionsRequest,
@@ -18,8 +17,7 @@ const {
   runtimeOnMessageAddListener,
 } = vi.hoisted(() => ({
   storageOnChangedAddListener: vi.fn(),
-  tabsQuery: vi.fn(),
-  tabsOnActivatedAddListener: vi.fn(),
+  tabsGet: vi.fn(),
   tabsOnUpdatedAddListener: vi.fn(),
   // Left unresolved by default (undefined return): tabStatus()'s try/catch treats
   // that the same as "no content script answered", matching every test that does
@@ -34,9 +32,8 @@ vi.mock("../shared/browser", () => ({
   browser: {
     storage: { onChanged: { addListener: storageOnChangedAddListener } },
     tabs: {
-      query: tabsQuery,
+      get: tabsGet,
       sendMessage: tabsSendMessage,
-      onActivated: { addListener: tabsOnActivatedAddListener },
       onUpdated: { addListener: tabsOnUpdatedAddListener },
     },
     permissions: { request: permissionsRequest },
@@ -82,22 +79,14 @@ function storageListener(): (changes: Record<string, unknown>, area: string) => 
   ) => void;
 }
 
-/** tabs.onActivated's listener: fired on every tab switch, unconditionally re-renders. */
-function activatedListener(): () => void {
-  return tabsOnActivatedAddListener.mock.calls[0][0] as () => void;
-}
-
 /**
  * tabs.onUpdated's listener: fires repeatedly during a single page load, for every
- * tab in every window — the caller supplies the `tab` argument (only `active`
- * matters to the listener) to simulate either the tab on screen or an unrelated one.
+ * tab in every window — the caller supplies whichever `tabId` it wants to simulate,
+ * this window's own or an unrelated one. `changeInfo`/`tab` are accepted (the real
+ * browser always passes three arguments) but unused by the listener itself.
  */
-function updatedListener(): (tabId: number, changeInfo: unknown, tab: { active: boolean }) => void {
-  return tabsOnUpdatedAddListener.mock.calls[0][0] as (
-    tabId: number,
-    changeInfo: unknown,
-    tab: { active: boolean },
-  ) => void;
+function updatedListener(): (tabId: number, changeInfo: unknown, tab: unknown) => void {
+  return tabsOnUpdatedAddListener.mock.calls[0][0] as (tabId: number, changeInfo: unknown, tab: unknown) => void;
 }
 
 /** Only the `tab` shape the picked-message listener actually reads. */
@@ -135,10 +124,16 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-/** Imports the module (running its top-level side effects) and waits for the first render. */
+/**
+ * Imports the module (running its top-level side effects) and waits for the first
+ * render. Sets `?tabId=1` on the document's own URL before importing: the module
+ * reads its own tab id from `location.search` once, at import time (see ownTabId in
+ * index.ts), so this must happen before the `import()` call, not after.
+ */
 async function loadModule(initialSettings: Settings): Promise<void> {
+  window.history.replaceState(null, "", "/panel.html?tabId=1");
   load.mockResolvedValueOnce(initialSettings);
-  tabsQuery.mockResolvedValue([{ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined }]);
+  tabsGet.mockResolvedValue({ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined });
   await import("./index");
   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
   // Flush the microtasks of render()'s own currentTab()/DOM-append chain.
@@ -150,6 +145,10 @@ let addEventListenerSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
+  // Reset to no `tabId` at all; loadModule() (and any test that needs a different
+  // one) sets its own before importing the module — see ownTabId in index.ts, read
+  // once from location.search at import time.
+  window.history.replaceState(null, "", "/panel.html");
   // Spies rather than mocks the implementation away: the pagehide listener must
   // actually register normally, this only lets pagehideListener() (above) retrieve
   // it. vi.spyOn keeps calling through to the real window.addEventListener.
@@ -166,8 +165,7 @@ afterEach(() => {
   load.mockReset();
   save.mockReset();
   storageOnChangedAddListener.mockReset();
-  tabsQuery.mockReset();
-  tabsOnActivatedAddListener.mockReset();
+  tabsGet.mockReset();
   tabsOnUpdatedAddListener.mockReset();
   tabsSendMessage.mockReset();
   permissionsRequest.mockReset();
@@ -178,7 +176,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("sidepanel: storage echo vs. an edit in progress", () => {
+describe("panel: storage echo vs. an edit in progress", () => {
   it("does not rebuild #app when the storage change carries the panel's own just-saved value", async () => {
     await loadModule(settingsWith(profile()));
 
@@ -376,7 +374,7 @@ describe("sidepanel: storage echo vs. an edit in progress", () => {
   });
 });
 
-describe("sidepanel: instant color preview", () => {
+describe("panel: instant color preview", () => {
   it("sends the previewed profile to the tab being edited on a field's input event, ahead of the debounced save", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
@@ -440,7 +438,7 @@ describe("sidepanel: instant color preview", () => {
   });
 });
 
-describe("sidepanel: flushing a pending save on pagehide", () => {
+describe("panel: flushing a pending save on pagehide", () => {
   it("saves the committed settings immediately on pagehide, and does not save again when the debounce timer would have fired afterwards", async () => {
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
 
@@ -505,7 +503,7 @@ describe("sidepanel: flushing a pending save on pagehide", () => {
   });
 });
 
-describe("sidepanel: the favicon section stays open across a settled edit", () => {
+describe("panel: the favicon section stays open across a settled edit", () => {
   it("does not collapse when picking a mode re-renders the panel", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ faviconMode: "tinted" })));
@@ -536,7 +534,7 @@ describe("sidepanel: the favicon section stays open across a settled edit", () =
   });
 });
 
-describe("sidepanel: rules section wiring", () => {
+describe("panel: rules section wiring", () => {
   it("passes the content script's reported states through to the rule dots and the footer note", async () => {
     const matched = createRule(".matched");
     const notFound = createRule(".gone");
@@ -612,7 +610,7 @@ describe("sidepanel: rules section wiring", () => {
   });
 });
 
-describe("sidepanel: refreshing rule status once the panel's own save settles", () => {
+describe("panel: refreshing rule status once the panel's own save settles", () => {
   it("turns a picked rule's dot from unknown to matched once the debounced save settles and the content script reports it", async () => {
     // The status reply reflects whatever was last actually saved: empty before the
     // debounced save fires (the content script has nothing new to report yet), and
@@ -677,7 +675,7 @@ describe("sidepanel: refreshing rule status once the panel's own save settles", 
   });
 });
 
-describe("sidepanel: adding a rule via the picker", () => {
+describe("panel: adding a rule via the picker", () => {
   it("requests host permission and starts the picker when '+ Add rule' is clicked and permission is granted", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile()));
@@ -782,36 +780,16 @@ describe("sidepanel: adding a rule via the picker", () => {
     expect(getApp().querySelectorAll(".rule")).toHaveLength(0);
   });
 
-  it("attaches the picked rule to the tab that ran the picker, not to whatever tab is active now", async () => {
-    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
-    // No profile matches either host yet, so addRuleForUrl() creates a fresh one keyed
-    // by hostname — that lets the assertion below tell "attached to tab A's site" apart
-    // from "attached to tab B's site" unambiguously.
-    await loadModule(settingsWith());
-
-    vi.useFakeTimers();
-
-    // The panel survives tab switches: by the time the picker's message is handled,
-    // the window's active tab has moved on to a different site (id 2). This is exactly
-    // the race from the finding — a switch between the picker's click and the message
-    // arriving.
-    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
-
-    // sender.tab names tab 1 (example.com) — the tab the picker actually ran in.
-    pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
-      { tab: { id: 1, url: "https://example.com" } },
-    );
-
-    await vi.advanceTimersByTimeAsync(300);
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(save).toHaveBeenCalledTimes(1);
-    const saved = save.mock.calls[0][0] as Settings;
-    const createdForA = saved.profiles.find((p) => p.patterns.includes("*://example.com/*"));
-    expect(createdForA?.rules.map((r) => r.selector)).toEqual([".picked"]);
-    expect(saved.profiles.some((p) => p.patterns.includes("*://other.example/*"))).toBe(false);
-  });
+  // Removed: "attaches the picked rule to the tab that ran the picker, not to
+  // whatever tab is active now". That test simulated a tab switch between the
+  // picker's click and the message arriving by re-mocking tabs.query mid-test — a
+  // race that could only happen because the old side panel re-queried "the active
+  // tab" and could outlive a switch to a different one. This window is pinned to a
+  // single tab for its whole life (ownTabId, resolved once from the URL), never
+  // re-queries "the active tab" at all, and is torn down with its tab rather than
+  // surviving a switch — so the scenario the test simulated cannot occur anymore.
+  // The underlying code path it exercised (using sender.tab rather than re-deriving
+  // a tab) is untouched and still covered by the plain "creates the rule" test above.
 
   it("does nothing when the picked message carries no usable sender tab", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
@@ -826,10 +804,15 @@ describe("sidepanel: adding a rule via the picker", () => {
   });
 });
 
-describe("sidepanel: pick error follows its own tab", () => {
-  it("hides the error once the panel switches to another tab, but keeps it across a plain re-render of the same tab", async () => {
+describe("panel: pick error survives a plain re-render of its own tab", () => {
+  // Removed: the second half of the old test switched to a different tab (via
+  // tabs.onActivated) to prove the error does not follow the user to an unrelated
+  // site. This window is pinned to a single tab for its whole life — there is no
+  // "switch to a different tab" left for it to observe — so that half is obsolete.
+  // What remains (a plain re-render of the same tab must not blink the error away)
+  // is still fully meaningful and is what this test now covers.
+  it("keeps the error across a plain re-render triggered by tabs.onUpdated for its own tab", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
-    // A wildcard profile so both tab 1's and tab 2's site still render a panel.
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(false);
@@ -842,26 +825,17 @@ describe("sidepanel: pick error follows its own tab", () => {
 
     // A plain re-render of the same tab (tabs.onUpdated firing again mid-load, for
     // instance) must not blink the error away: the user has not acted on it yet.
-    tabsQuery.mockResolvedValue([{ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined }]);
-    updatedListener()(1, {}, { active: true });
+    tabsGet.mockResolvedValue({ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined });
+    updatedListener()(1, {}, undefined);
     await Promise.resolve();
     await Promise.resolve();
     expect(getApp().querySelector(".section.error")?.textContent).toBe(
       "Without access to this site the picker cannot run.",
     );
-
-    // The user switches to a different tab (a different site): the error belongs to
-    // tab 1 and must not follow them there.
-    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
-    activatedListener()();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(getApp().querySelector(".section.error")).toBeNull();
   });
 });
 
-describe("sidepanel: disabling a matching profile does not strand the panel", () => {
+describe("panel: disabling a matching profile does not strand the panel", () => {
   it("keeps the toggle in the DOM, off, and able to turn the profile back on", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ rules: [] })));
@@ -900,7 +874,7 @@ describe("sidepanel: disabling a matching profile does not strand the panel", ()
   });
 });
 
-describe("sidepanel: the painting profile wins over an earlier disabled match", () => {
+describe("panel: the painting profile wins over an earlier disabled match", () => {
   it("renders the enabled profile's toggle and rules, and attaches a picked rule to it", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     // Both profiles match the tab's host; "a" sits first in the list but is
@@ -946,29 +920,90 @@ describe("sidepanel: the painting profile wins over an earlier disabled match", 
   });
 });
 
-describe("sidepanel: the favicon disclosure does not carry its open state to another tab", () => {
-  it("closes when the panel switches to a different tab", async () => {
+// Removed: "sidepanel: the favicon disclosure does not carry its open state to
+// another tab". That test opened the disclosure, then simulated tabs.onActivated
+// firing for a different tab id to prove faviconSectionExpanded got reset. Both the
+// trigger (tabs.onActivated) and the reset it checked for (render()'s `tab.id !==
+// currentTabId` branch) are gone: this window is pinned to a single tab for its
+// whole life, so there is no other site's disclosure state to ever leak in from —
+// the scenario the test guarded against cannot occur anymore.
+
+describe("panel: resolving its own tab from the tabId query parameter", () => {
+  it("reads the tab id from the URL and resolves it via tabs.get", async () => {
+    window.history.replaceState(null, "", "/panel.html?tabId=7");
+    load.mockResolvedValueOnce(settingsWith(profile()));
+    tabsGet.mockResolvedValue({ id: 7, url: "https://example.com", title: "Example", favIconUrl: undefined });
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
-    // A wildcard profile so both tab 1's and tab 2's site render a panel.
-    await loadModule(settingsWith(profile()));
 
-    getApp().querySelector<HTMLButtonElement>(".disclosure")!.click();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true");
+    await import("./index");
+    await vi.waitFor(() => expect(tabsGet).toHaveBeenCalledWith(7));
+    await vi.waitFor(() => expect(prefixInput()).not.toBeNull());
 
-    // Switch to a different tab (a different site, different id).
-    tabsQuery.mockResolvedValue([{ id: 2, url: "https://other.example", title: "Other", favIconUrl: undefined }]);
-    activatedListener()();
+    expect(getApp().querySelector(".mono")?.textContent).toBe("example.com");
+  });
+
+  it("renders the empty state instead of throwing when the tabId parameter is missing", async () => {
+    window.history.replaceState(null, "", "/panel.html");
+    load.mockResolvedValueOnce(settingsWith(profile()));
+
+    await import("./index");
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("false");
+    // Without the guard, currentTab() would call browser.tabs.get(NaN) and render()
+    // would either throw or hang on a rejected promise instead of showing this note.
+    expect(tabsGet).not.toHaveBeenCalled();
+    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
+  });
+
+  it("renders the empty state instead of throwing when the tabId parameter is not a number", async () => {
+    window.history.replaceState(null, "", "/panel.html?tabId=abc");
+    load.mockResolvedValueOnce(settingsWith(profile()));
+
+    await import("./index");
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(tabsGet).not.toHaveBeenCalled();
+    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
+  });
+
+  it("renders the empty state instead of throwing when the tab no longer exists", async () => {
+    window.history.replaceState(null, "", "/panel.html?tabId=7");
+    load.mockResolvedValueOnce(settingsWith(profile()));
+    tabsGet.mockRejectedValue(new Error("No tab with id: 7"));
+
+    await import("./index");
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getApp().textContent).toContain("Click the toolbar icon on a web page to work with it.");
   });
 });
 
-describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
-  it("does not rebuild #app for an update event about a background tab", async () => {
+describe("panel: tabs.onUpdated only re-renders for this window's own tab", () => {
+  it("re-renders when its own tab reports an update", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    const before = getApp().firstElementChild;
+
+    // The tab this window belongs to (id 1, per loadModule()) navigates: title and
+    // favicon change, exactly what tabs.onUpdated exists to catch for this window.
+    tabsGet.mockResolvedValue({ id: 1, url: "https://example.com", title: "New title", favIconUrl: undefined });
+    updatedListener()(1, { status: "complete" }, undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getApp().firstElementChild).not.toBe(before);
+    expect(getApp().textContent).toContain("New title");
+  });
+
+  it("does not rebuild #app for an update about a different tab", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
 
@@ -982,9 +1017,9 @@ describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
 
     // tabs.onUpdated fires for some other tab loading in the background — several
-    // such events happen per page load, in any window, not just the one the panel
-    // is showing. `active: false` is exactly what the browser reports for that tab.
-    updatedListener()(99, { status: "loading" }, { active: false });
+    // such events happen per page load, in any window, not just this one. Without
+    // filtering to ownTabId, this would rebuild #app unconditionally.
+    updatedListener()(99, { status: "loading" }, undefined);
     await vi.advanceTimersByTimeAsync(0);
 
     // Must not have rebuilt #app: same top element, same input node, still holding
@@ -997,34 +1032,9 @@ describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
     // Drain the debounce so it does not leak into a later test.
     await vi.advanceTimersByTimeAsync(300);
   });
-
-  it("does not rebuild #app for an active tab in a different window", async () => {
-    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
-    await loadModule(settingsWith(profile({ titlePrefix: "" })));
-
-    vi.useFakeTimers();
-    const markerBefore = getApp().firstElementChild;
-    const input = prefixInput();
-
-    input.value = "[QA] ";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-
-    // A different tab (id 42), active — but in ANOTHER window: the panel's own
-    // active tab (per loadModule()'s `{ active: true, currentWindow: true }` query)
-    // is id 1. `tabs.onUpdated` delivers this event globally regardless of window,
-    // so `tab.active` alone (true here) would wrongly let it through.
-    updatedListener()(42, { status: "loading" }, { active: true });
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(getApp().firstElementChild).toBe(markerBefore);
-    expect(prefixInput()).toBe(input);
-    expect(prefixInput().value).toBe("[QA] ");
-
-    await vi.advanceTimersByTimeAsync(300);
-  });
 });
 
-describe("sidepanel: overlapping renders", () => {
+describe("panel: overlapping renders", () => {
   it("keeps only the newer render's rules section and footer when an older render's tabStatus() resolves later", async () => {
     const rule = createRule(".a");
     // The initial render during loadModule() consumes tabsSendMessage's first call.
@@ -1036,20 +1046,19 @@ describe("sidepanel: overlapping renders", () => {
     tabsSendMessage.mockImplementationOnce(() => olderStatus.promise); // render A (older)
     tabsSendMessage.mockImplementationOnce(() => newerStatus.promise); // render B (newer)
 
-    // tabs.onActivated fires render A. Let it run far enough to replace #app, append
-    // its top/preview/favicon sections, and reach `await tabStatus(tab.id)` — matching
-    // the finding's own description of the race — before render B starts.
-    activatedListener()();
+    // tabs.onUpdated fires render A for this window's own tab. Let it run far enough
+    // to replace #app, append its top/preview/favicon sections, and reach
+    // `await tabStatus(tab.id)` — matching the finding's own description of the race —
+    // before render B starts.
+    updatedListener()(1, {}, undefined);
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    // Before A's tabStatus() settles, tabs.onUpdated fires render B — exactly the
-    // interleaving tabs.onUpdated produces repeatedly during one page load. Let B run
-    // to its own `await tabStatus(tab.id)` too. Fired for the active tab, same as the
-    // one loadModule() set up — an update for a background tab would be filtered out
-    // entirely (see the dedicated test for that below) and never reach render() at all.
-    updatedListener()(1, {}, { active: true });
+    // Before A's tabStatus() settles, tabs.onUpdated fires again for the same tab —
+    // exactly the interleaving it produces repeatedly during one page load. Let B run
+    // to its own `await tabStatus(tab.id)` too.
+    updatedListener()(1, {}, undefined);
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
