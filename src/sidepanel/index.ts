@@ -370,7 +370,15 @@ async function render(): Promise<void> {
 
 // The panel outlives tab switches, so it re-reads the tab whenever the user moves.
 browser.tabs.onActivated.addListener(() => void render());
-browser.tabs.onUpdated.addListener(() => void render());
+// Fires for every tab in every window, several times over a single page load — not
+// just the one on screen. Re-rendering unconditionally would rebuild #app (kicking
+// focus out of whatever the user is typing into) for activity in a completely
+// unrelated background tab, reintroducing from outside exactly what the commit/
+// commitAndRender split exists to prevent. `tab.active` scopes this back down to the
+// tab the panel is actually showing.
+browser.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => {
+  if (tab.active) void render();
+});
 
 type PickedMessage = { type: "color-vmui:picked"; selector: string };
 

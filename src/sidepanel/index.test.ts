@@ -87,9 +87,17 @@ function activatedListener(): () => void {
   return tabsOnActivatedAddListener.mock.calls[0][0] as () => void;
 }
 
-/** tabs.onUpdated's listener: fires repeatedly during a single page load. */
-function updatedListener(): () => void {
-  return tabsOnUpdatedAddListener.mock.calls[0][0] as () => void;
+/**
+ * tabs.onUpdated's listener: fires repeatedly during a single page load, for every
+ * tab in every window — the caller supplies the `tab` argument (only `active`
+ * matters to the listener) to simulate either the tab on screen or an unrelated one.
+ */
+function updatedListener(): (tabId: number, changeInfo: unknown, tab: { active: boolean }) => void {
+  return tabsOnUpdatedAddListener.mock.calls[0][0] as (
+    tabId: number,
+    changeInfo: unknown,
+    tab: { active: boolean },
+  ) => void;
 }
 
 /** Only the `tab` shape the picked-message listener actually reads. */
@@ -715,7 +723,7 @@ describe("sidepanel: pick error follows its own tab", () => {
     // A plain re-render of the same tab (tabs.onUpdated firing again mid-load, for
     // instance) must not blink the error away: the user has not acted on it yet.
     tabsQuery.mockResolvedValue([{ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined }]);
-    updatedListener()();
+    updatedListener()(1, {}, { active: true });
     await Promise.resolve();
     await Promise.resolve();
     expect(getApp().querySelector(".section.error")?.textContent).toBe(
@@ -772,6 +780,38 @@ describe("sidepanel: disabling a matching profile does not strand the panel", ()
   });
 });
 
+describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
+  it("does not rebuild #app for an update event about a background tab", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const markerBefore = getApp().firstElementChild;
+    const input = prefixInput();
+
+    // Typing without blurring, exactly like the storage-echo tests above: only
+    // 'input' fires, so commit() runs but no render() has happened yet.
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // tabs.onUpdated fires for some other tab loading in the background — several
+    // such events happen per page load, in any window, not just the one the panel
+    // is showing. `active: false` is exactly what the browser reports for that tab.
+    updatedListener()(99, { status: "loading" }, { active: false });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Must not have rebuilt #app: same top element, same input node, still holding
+    // what the user typed — the exact focus-destruction the commit/commitAndRender
+    // split exists to prevent, reintroduced from outside via this listener.
+    expect(getApp().firstElementChild).toBe(markerBefore);
+    expect(prefixInput()).toBe(input);
+    expect(prefixInput().value).toBe("[QA] ");
+
+    // Drain the debounce so it does not leak into a later test.
+    await vi.advanceTimersByTimeAsync(300);
+  });
+});
+
 describe("sidepanel: overlapping renders", () => {
   it("keeps only the newer render's rules section and footer when an older render's tabStatus() resolves later", async () => {
     const rule = createRule(".a");
@@ -794,8 +834,10 @@ describe("sidepanel: overlapping renders", () => {
 
     // Before A's tabStatus() settles, tabs.onUpdated fires render B — exactly the
     // interleaving tabs.onUpdated produces repeatedly during one page load. Let B run
-    // to its own `await tabStatus(tab.id)` too.
-    updatedListener()();
+    // to its own `await tabStatus(tab.id)` too. Fired for the active tab, same as the
+    // one loadModule() set up — an update for a background tab would be filtered out
+    // entirely (see the dedicated test for that below) and never reach render() at all.
+    updatedListener()(1, {}, { active: true });
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
