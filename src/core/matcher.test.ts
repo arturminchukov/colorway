@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Profile } from "./profile";
-import { findProfileForUrl, matchesPattern, pickProfile } from "./matcher";
+import { currentProfileForUrl, findProfileForUrl, matchesPattern, pickProfile } from "./matcher";
 
 const profile = (over: Partial<Profile>): Profile => ({
   id: "id",
@@ -95,5 +95,23 @@ describe("findProfileForUrl", () => {
   it("returns null when nothing matches", () => {
     const a = profile({ patterns: ["*://other.corp/*"] });
     expect(findProfileForUrl("https://vm.corp/vmui/", [a])).toBeNull();
+  });
+});
+
+describe("currentProfileForUrl", () => {
+  it("prefers the profile that actually paints over an earlier disabled match", () => {
+    const off = profile({ id: "a", enabled: false, patterns: ["*://vm.corp/*"] });
+    const on = profile({ id: "b", patterns: ["*://vm.corp/*"] });
+    expect(currentProfileForUrl("https://vm.corp/vmui/", [off, on])?.id).toBe("b");
+  });
+
+  it("falls back to the matching disabled profile when nothing paints", () => {
+    const off = profile({ id: "off", enabled: false, patterns: ["*://vm.corp/*"] });
+    expect(currentProfileForUrl("https://vm.corp/vmui/", [off])?.id).toBe("off");
+  });
+
+  it("returns null when nothing matches", () => {
+    const a = profile({ patterns: ["*://other.corp/*"] });
+    expect(currentProfileForUrl("https://vm.corp/vmui/", [a])).toBeNull();
   });
 });

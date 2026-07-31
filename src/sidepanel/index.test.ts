@@ -900,6 +900,52 @@ describe("sidepanel: disabling a matching profile does not strand the panel", ()
   });
 });
 
+describe("sidepanel: the painting profile wins over an earlier disabled match", () => {
+  it("renders the enabled profile's toggle and rules, and attaches a picked rule to it", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    // Both profiles match the tab's host; "a" sits first in the list but is
+    // disabled, so it is the one that would paint the page if either could — "b" is
+    // the one that actually does.
+    const disabledFirst = profile({
+      id: "a",
+      enabled: false,
+      patterns: ["*://example.com/*"],
+      titlePrefix: "[OFF] ",
+    });
+    const enabledSecond = profile({
+      id: "b",
+      enabled: true,
+      patterns: ["*://example.com/*"],
+      titlePrefix: "[ON] ",
+    });
+    await loadModule(settingsWith(disabledFirst, enabledSecond));
+
+    // The panel must show "b" — the one painting the page — not "a": its toggle is
+    // checked, its prefix is the one in the field, and the panel is not marked off.
+    const toggle = getApp().querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(toggle.checked).toBe(true);
+    expect(prefixInput().value).toBe("[ON] ");
+    expect(getApp().querySelector(".profile-off")).toBeNull();
+
+    vi.useFakeTimers();
+
+    // A rule picked on the page must attach to "b" too, not to "a" ahead of it.
+    const result = pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+    expect(result).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    const saved = save.mock.calls[0][0] as Settings;
+    expect(saved.profiles.find((p) => p.id === "b")?.rules.map((r) => r.selector)).toEqual([".picked"]);
+    expect(saved.profiles.find((p) => p.id === "a")?.rules).toEqual([]);
+  });
+});
+
 describe("sidepanel: tabs.onUpdated only re-renders for the active tab", () => {
   it("does not rebuild #app for an update event about a background tab", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });

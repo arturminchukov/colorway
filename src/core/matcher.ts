@@ -67,3 +67,16 @@ export function findProfileForUrl(url: string, profiles: Profile[]): Profile | n
   }
   return null;
 }
+
+/**
+ * The profile currently in effect for this url: the one that paints, or — when no
+ * match is enabled — the one that would if it were. Neither lookup alone is right
+ * for UI that shows and edits "the profile for this site": pickProfile alone goes
+ * blank the moment its match is disabled, and findProfileForUrl alone can return an
+ * earlier disabled match while a later, enabled profile is the one actually
+ * painting the page. Preferring the painting profile and falling back to the
+ * matching one keeps both cases honest.
+ */
+export function currentProfileForUrl(url: string, profiles: Profile[]): Profile | null {
+  return pickProfile(url, profiles) ?? findProfileForUrl(url, profiles);
+}

@@ -1,6 +1,6 @@
 import type { Runtime } from "webextension-polyfill";
 import type { PreviewMessage, RuleState, StatusResponse } from "../content/index";
-import { findProfileForUrl, pickProfile } from "../core/matcher";
+import { currentProfileForUrl, pickProfile } from "../core/matcher";
 import { addRuleForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { browser, settingsRepo } from "../shared/browser";
@@ -295,9 +295,14 @@ async function render(): Promise<void> {
   const paintingProfile = pickProfile(tab.url, settings.profiles);
   app.append(renderTabPreview({ profile: paintingProfile, icon: tab.icon, title: tab.title }));
 
-  // What the panel renders and edits: matched by pattern regardless of `enabled`, so
-  // turning a profile off does not strand the panel with no way to turn it back on.
-  const profile = findProfileForUrl(tab.url, settings.profiles);
+  // What the panel renders and edits: the profile that paints, or — when no match is
+  // enabled — the one that would if re-enabled, so turning a profile off does not
+  // strand the panel with no way to turn it back on. Must agree with
+  // `paintingProfile` above whenever one exists: a plain pattern match regardless of
+  // `enabled` (findProfileForUrl alone) could return an earlier disabled profile while
+  // a later, enabled one is the one actually painting, which would edit the wrong
+  // profile entirely.
+  const profile = currentProfileForUrl(tab.url, settings.profiles);
 
   const top = document.createElement("div");
   top.className = "section row";
@@ -446,9 +451,9 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
 
   const next = addRuleForUrl(settings, tabUrl, createRule(picked.selector));
   // Open the rule that was just created: its colors are the reason the user picked.
-  // Looked up the same way addRuleForUrl chose its target — by pattern, painting or
-  // not — or a rule added to a switched-off profile would not open.
-  const profile = findProfileForUrl(tabUrl, next.profiles);
+  // Looked up the same way addRuleForUrl chose its target, so this always finds the
+  // profile the rule actually landed on.
+  const profile = currentProfileForUrl(tabUrl, next.profiles);
   expandedRuleId = profile?.rules.at(-1)?.id ?? null;
   // A successful pick supersedes a failure message left over from an earlier attempt,
   // but only the one raised for this same tab — see pickErrorTabId above.

@@ -55,6 +55,15 @@ describe("addRuleForUrl", () => {
     expect(next.profiles[0].rules).toEqual([rule]);
   });
 
+  it("attaches to the profile that paints, not an earlier disabled match for the same host", () => {
+    const off = { ...createProfile("vm.corp"), id: "a", enabled: false, patterns: ["*://vm.corp/*"] };
+    const on = { ...createProfile("vm.corp"), id: "b", patterns: ["*://vm.corp/*"] };
+    const next = addRuleForUrl({ version: 3, profiles: [off, on] }, "https://vm.corp/", rule);
+    expect(next.profiles).toHaveLength(2);
+    expect(next.profiles.find((p) => p.id === "b")?.rules).toEqual([rule]);
+    expect(next.profiles.find((p) => p.id === "a")?.rules).toEqual([]);
+  });
+
   it("returns the settings unchanged for a url without a host", () => {
     const settings: Settings = { version: 3, profiles: [] };
     expect(addRuleForUrl(settings, "not a url", rule)).toEqual(settings);
