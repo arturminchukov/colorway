@@ -752,6 +752,22 @@ describe("sidepanel: adding a rule via the picker", () => {
     expect(editorSelectorInput?.value).toBe(".picked");
   });
 
+  it("leaves the picked rule expanded even when the matching profile is switched off", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: null, matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ enabled: false, rules: [] })));
+
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+
+    // One rule on the existing profile — not a second profile created beside it —
+    // and its editor open, exactly as for an enabled profile.
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule")).toHaveLength(1));
+    const editorSelectorInput = getApp().querySelector<HTMLInputElement>('.editor input[type="text"]');
+    expect(editorSelectorInput?.value).toBe(".picked");
+  });
+
   it("ignores a message of another type and does not create a rule", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ rules: [] })));

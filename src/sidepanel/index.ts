@@ -446,7 +446,9 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
 
   const next = addRuleForUrl(settings, tabUrl, createRule(picked.selector));
   // Open the rule that was just created: its colors are the reason the user picked.
-  const profile = pickProfile(tabUrl, next.profiles);
+  // Looked up the same way addRuleForUrl chose its target — by pattern, painting or
+  // not — or a rule added to a switched-off profile would not open.
+  const profile = findProfileForUrl(tabUrl, next.profiles);
   expandedRuleId = profile?.rules.at(-1)?.id ?? null;
   // A successful pick supersedes a failure message left over from an earlier attempt,
   // but only the one raised for this same tab — see pickErrorTabId above.
