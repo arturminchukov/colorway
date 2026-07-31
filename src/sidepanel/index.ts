@@ -95,6 +95,37 @@ function sendPreview(next: Settings, tab: TabTarget): void {
 }
 
 /**
+ * Saves exactly the `next` snapshot the caller closed over, not the module-level
+ * `settings` variable: a storage echo (see the listener below) could otherwise
+ * reassign `settings` before this runs and the save would silently write back a
+ * value the user never asked for, discarding what they typed. Shared by the normal
+ * debounce timer (commit(), below) and the pagehide flush (flushPendingSave()), so
+ * both settle `pendingSave`/`pendingExternalUpdate` the same way.
+ */
+function persistCommit(next: Settings): void {
+  const settleSave = (): void => {
+    // A newer commit() may have replaced pendingSave with its own, still-unsaved
+    // snapshot and scheduled its own save (clearTimeout only cancels a pending
+    // timer, not a save already in flight). Only the save whose snapshot is still
+    // the latest pending one is allowed to clear the guard.
+    if (pendingSave !== next) return;
+    pendingSave = null;
+    if (pendingExternalUpdate) {
+      pendingExternalUpdate = false;
+      void refreshFromStorage();
+    }
+  };
+  // Clear the guard on rejection too (quota exceeded, extension context
+  // invalidated, ...): if only the success path cleared it, a single failed save
+  // would leave pendingSave set forever, and every external storage change from
+  // then on would hit the `pendingSave !== null` branch below and never be
+  // consumed again. There is no error surface in this panel today; surfacing a
+  // failed save to the user is a separate piece of work, so the failure itself
+  // is deliberately swallowed here beyond clearing the guard.
+  void settingsRepo.save(next).then(settleSave, settleSave);
+}
+
+/**
  * Split in two: render() rebuilds the whole panel with app.replaceChildren(), which
  * would kick focus out of any field the user is still typing into. commit() only
  * updates state and schedules the debounced save, so it is safe to call on every
@@ -108,32 +139,44 @@ function commit(next: Settings, tab: TabTarget): void {
   sendPreview(next, tab);
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    // Save exactly the `next` snapshot this call closed over, not the module-level
-    // `settings` variable: a storage echo (see the listener below) could otherwise
-    // reassign `settings` before this timer fires and the save would silently write
-    // back a value the user never asked for, discarding what they typed.
-    const settleSave = (): void => {
-      // A newer commit() may have replaced pendingSave with its own, still-unsaved
-      // snapshot and scheduled its own save (clearTimeout only cancels a pending
-      // timer, not a save already in flight). Only the save whose snapshot is still
-      // the latest pending one is allowed to clear the guard.
-      if (pendingSave !== next) return;
-      pendingSave = null;
-      if (pendingExternalUpdate) {
-        pendingExternalUpdate = false;
-        void refreshFromStorage();
-      }
-    };
-    // Clear the guard on rejection too (quota exceeded, extension context
-    // invalidated, ...): if only the success path cleared it, a single failed save
-    // would leave pendingSave set forever, and every external storage change from
-    // then on would hit the `pendingSave !== null` branch below and never be
-    // consumed again. There is no error surface in this panel today; surfacing a
-    // failed save to the user is a separate piece of work, so the failure itself
-    // is deliberately swallowed here beyond clearing the guard.
-    void settingsRepo.save(next).then(settleSave, settleSave);
+    // Mark no timer as outstanding before the (async) save starts: this is what lets
+    // flushPendingSave() below tell "a save is still scheduled" apart from "a save is
+    // already in flight", so it never fires a second save for the same commit.
+    saveTimer = undefined;
+    persistCommit(next);
   }, SAVE_DELAY_MS);
 }
+
+/**
+ * The side panel's page can be torn down (tab closed, panel closed, browser exit)
+ * before the 300ms debounce timer in commit() fires. Left alone, settingsRepo.save()
+ * would simply never run: storage.onChanged never reaches the content script, and the
+ * preview commit() already painted via sendPreview() (see applyPreview in
+ * content/index.ts) is never replaced by the real, saved value — the tab keeps
+ * showing colors that were never actually saved.
+ *
+ * `pagehide` is the right signal for this, not `visibilitychange`: a side panel can
+ * become hidden (another panel opened, DevTools focused, ...) without being
+ * destroyed, and flushing early there would just be a harmless no-op deviation from
+ * the debounce, not a fix for anything — `pagehide` is what actually means the page
+ * is going away.
+ *
+ * Only flushes while a timer is still outstanding (saveTimer !== undefined): once the
+ * timer has fired, persistCommit() is already running and must not be started twice
+ * for the same snapshot.
+ *
+ * Best-effort: the browser can still kill the page before this async save settles, so
+ * this reduces the window where a stale preview survives the panel — it does not
+ * close it entirely.
+ */
+function flushPendingSave(): void {
+  if (saveTimer === undefined || pendingSave === null) return;
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  persistCommit(pendingSave);
+}
+
+window.addEventListener("pagehide", flushPendingSave);
 
 function commitAndRender(next: Settings, tab: TabTarget): void {
   commit(next, tab);

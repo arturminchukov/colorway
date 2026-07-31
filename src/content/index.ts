@@ -6,7 +6,7 @@ import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { createFaviconApplier } from "./faviconApplier";
 import { createFaviconTinter } from "./faviconTint";
-import { applyStyle } from "./styleInjector";
+import { applyStyle, applyStyleById } from "./styleInjector";
 import { createTitleApplier } from "./titleApplier";
 
 declare global {
@@ -95,19 +95,12 @@ const PREVIEW_STYLE_ID = "color-vmui-preview";
  * here and we paint it at once through a separate style element, kept independent of
  * the real one (see applyStyle) so the preview can be dropped without touching
  * whatever is already painting for real. The debounced write eventually lands and
- * apply() drops this preview, below.
+ * apply() drops this preview, below. Goes through the same idempotent-by-id helper
+ * as applyStyle (see styleInjector.ts) so both stay in lockstep if that idempotency
+ * ever changes.
  */
 function applyPreview(profile: Profile | null): void {
-  const existing = document.getElementById(PREVIEW_STYLE_ID);
-  const css = profile ? buildCss(profile) : null;
-  if (!css) {
-    existing?.remove();
-    return;
-  }
-  const element = existing ?? document.createElement("style");
-  element.id = PREVIEW_STYLE_ID;
-  if (element.textContent !== css) element.textContent = css;
-  if (!element.isConnected) document.documentElement.append(element);
+  applyStyleById(PREVIEW_STYLE_ID, profile ? buildCss(profile) : null);
 }
 
 let activeProfile: Profile | null = null;

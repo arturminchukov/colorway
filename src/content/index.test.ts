@@ -179,6 +179,33 @@ describe("instant color preview", () => {
     expect(document.getElementById(PREVIEW_ID)).toBeNull();
   });
 
+  it("writes nothing when the identical preview is sent twice in a row", async () => {
+    // Mirrors idempotency.test.ts's applyStyle case, but for the preview path: it
+    // goes through the same shared helper (applyStyleById in styleInjector.ts), and
+    // a broken conditional write/append there would show up here as a mutation on
+    // the second, identical send.
+    await boot();
+    const rule = { id: "a", selector: ".a", background: "#111111", text: null };
+    const target = profile({ rules: [rule] });
+
+    await sendPreview(target);
+
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    // Deliberately not awaited before reading takeRecords(): the listener's own
+    // mutation runs synchronously, before its first (and only) await point, but
+    // `await`-ing the call here would yield to the microtask queue first — which
+    // is exactly when a MutationObserver's own notify task can run and drain the
+    // record queue out from under this assertion, making it pass no matter what
+    // the implementation does.
+    const call = sendPreview(target);
+    const records = observer.takeRecords();
+    observer.disconnect();
+    await call;
+
+    expect(records).toEqual([]);
+  });
+
   it("drops the preview once the real apply() runs, even when the real profile paints nothing", async () => {
     await boot();
     const rule = { id: "a", selector: ".a", background: "#111111", text: null };

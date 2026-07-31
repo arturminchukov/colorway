@@ -105,6 +105,19 @@ function addRuleButton(): HTMLButtonElement {
   return getApp().querySelector<HTMLButtonElement>("button.primary")!;
 }
 
+/**
+ * The pagehide flush is wired via a plain `window.addEventListener`, not through the
+ * mocked `browser` object, so it is not captured the way the other listeners above
+ * are. Each `loadModule()` re-imports the module (see `vi.resetModules()` in
+ * `afterEach`) and registers a fresh listener without ever removing the previous
+ * one, so the spy accumulates calls across tests in this file — the *last*
+ * registered "pagehide" listener is always the current test's module instance.
+ */
+function pagehideListener(): () => void {
+  const calls = addEventListenerSpy.mock.calls.filter(([type]: [string]) => type === "pagehide");
+  return calls[calls.length - 1][1] as () => void;
+}
+
 /** Lets a test control exactly when a given `settingsRepo.load()` call resolves. */
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -125,8 +138,14 @@ async function loadModule(initialSettings: Settings): Promise<void> {
   await Promise.resolve();
 }
 
+let addEventListenerSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
+  // Spies rather than mocks the implementation away: the pagehide listener must
+  // actually register normally, this only lets pagehideListener() (above) retrieve
+  // it. vi.spyOn keeps calling through to the real window.addEventListener.
+  addEventListenerSpy = vi.spyOn(window, "addEventListener");
   save.mockResolvedValue(undefined);
   // Default for both the status request (render()'s tabStatus(), tolerant of an
   // undefined reply via its own try/catch) and the new preview send (commit()'s
@@ -146,6 +165,7 @@ afterEach(() => {
   permissionsRequest.mockReset();
   runtimeSendMessage.mockReset();
   runtimeOnMessageAddListener.mockReset();
+  addEventListenerSpy.mockRestore();
   vi.resetModules();
   vi.useRealTimers();
 });
@@ -345,6 +365,13 @@ describe("sidepanel: instant color preview", () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
 
+    // Fake timers, then drained at the end: without this, commit()'s 300ms debounce
+    // schedules a real setTimeout that outlives this test (nothing here ever advances
+    // or cancels it) and fires ~300ms of real wall-clock time later, during whatever
+    // other test happens to be running then, calling the (file-wide, shared) `save`
+    // mock out of nowhere.
+    vi.useFakeTimers();
+
     // 'input' only (no 'change'): the exact event a color slider drag fires, and the
     // one wired to commit() rather than commitAndRender().
     const input = prefixInput();
@@ -365,6 +392,9 @@ describe("sidepanel: instant color preview", () => {
 
     // The debounced save has not fired yet — the preview really is ahead of it.
     expect(save).not.toHaveBeenCalled();
+
+    // Drain the debounce so it does not leak into a later test.
+    await vi.advanceTimersByTimeAsync(300);
   });
 
   it("does not blow up when the previewed tab has no listening content script", async () => {
@@ -375,6 +405,10 @@ describe("sidepanel: instant color preview", () => {
     });
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
 
+    // See the previous test: fake timers so commit()'s debounce does not leak a real
+    // setTimeout past the end of this test.
+    vi.useFakeTimers();
+
     const input = prefixInput();
     input.value = "[QA] ";
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -384,6 +418,74 @@ describe("sidepanel: instant color preview", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+
+    // Drain the debounce so it does not leak into a later test.
+    await vi.advanceTimersByTimeAsync(300);
+  });
+});
+
+describe("sidepanel: flushing a pending save on pagehide", () => {
+  it("saves the committed settings immediately on pagehide, and does not save again when the debounce timer would have fired afterwards", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Nothing saved yet — well within the 300ms debounce.
+    expect(save).not.toHaveBeenCalled();
+
+    pagehideListener()();
+    // The flush's settingsRepo.save() call is itself async; let its microtask run.
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    const saved = save.mock.calls[0][0] as Settings;
+    expect(saved.profiles[0].titlePrefix).toBe("[QA] ");
+
+    // The original debounce timer must have been cancelled by the flush: letting the
+    // 300ms it would have fired at elapse must not produce a second save.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing on pagehide when no save is scheduled", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    pagehideListener()();
+    await Promise.resolve();
+
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("does not save a second time on pagehide once the debounce timer has already fired but the save has not resolved yet", async () => {
+    await loadModule(settingsWith(profile({ titlePrefix: "" })));
+
+    vi.useFakeTimers();
+    const input = prefixInput();
+    input.value = "[QA] ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Held open deliberately: settleSave() (and with it, clearing pendingSave) only
+    // runs once this resolves, so the window where a save is genuinely "in flight"
+    // is under this test's control rather than a guess about microtask timing.
+    const inFlight = deferred<undefined>();
+    save.mockImplementationOnce(() => inFlight.promise);
+
+    // The normal debounce timer fires and starts the save; it stays unresolved.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    // pagehide arrives while that save is still in flight and pendingSave has not
+    // been cleared yet. Must not start a second save for the same commit.
+    pagehideListener()();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenCalledTimes(1);
+
+    inFlight.resolve(undefined);
+    await vi.advanceTimersByTimeAsync(0);
   });
 });
 
