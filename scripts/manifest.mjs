@@ -1,7 +1,9 @@
+import { version } from "./version.mjs";
+
 const base = {
   manifest_version: 3,
   name: "Colorway",
-  version: "0.1.0",
+  version,
   description: "Recolors picked elements of any site and marks the tab so instances are told apart",
   // No "tabs": the panel frame reads the active tab through activeTab (granted by the
   // action click that injects it) and the host permissions of sites the user has
@@ -28,7 +30,15 @@ const overrides = {
   firefox: {
     background: { scripts: ["background.js"] },
     browser_specific_settings: {
-      gecko: { id: "colorway@arturminchukov", strict_min_version: "128.0" },
+      gecko: {
+        id: "colorway@arturminchukov",
+        strict_min_version: "128.0",
+        // Required by AMO for new extensions. Nothing is collected: every profile stays
+        // in browser.storage.local on the device (see PRIVACY.md). The key itself is read
+        // from Firefox 140 on, so web-ext lint warns it is newer than the 128.0 floor —
+        // a warning, not an error: older Firefox ignores the key and installs as before.
+        data_collection_permissions: { required: ["none"] },
+      },
     },
   },
 };

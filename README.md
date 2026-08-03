@@ -14,7 +14,7 @@ appears in the window with its color controls ready.
 
 ## Requirements
 
-- Node 20.19+ (the floor comes from Vite's and ESLint's `engines`), Yarn 4
+- Node 20.19+ (the floor comes from Vite's and ESLint's `engines`), Yarn 4 — CI builds on Node 24
 - Chrome 102+ or Firefox 128 ESR+
 
 ## Build
@@ -97,6 +97,98 @@ The meaningful logic lives in `src/core/`: pure functions with no browser APIs, 
 The DOM side (`src/content/`) is covered in jsdom, including the idempotency invariant — a repeated
 apply must not mutate the region the applier itself observes, or the page spins in a microtask loop.
 
+## CI/CD
+
+- **`.github/workflows/ci.yml`** — on every pull request and push to `main`/`master`: typecheck,
+  lint, test, build, check the committed icons are up to date, run the AMO validator (`web-ext lint`)
+  over the Firefox build, and upload `dist/` as a downloadable `extension-builds` artifact.
+- **`.github/workflows/release.yml`** — on pushing a `v*` tag: runs tests, stamps the tag version
+  into the manifest (`COLORWAY_VERSION`), zips both builds plus the source archive, and publishes a GitHub
+  Release with all three attached.
+
+Cut a release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The version in `package.json` is the single source of truth (`scripts/version.mjs`); `COLORWAY_VERSION`
+overrides it, which is how a tag build stamps its version without a commit.
+
+## Publishing to the stores
+
+Build ready-to-upload zips locally:
+
+```bash
+yarn package   # -> release/colorway-{chrome,firefox}-<version>.zip
+```
+
+**Manual (simplest):** upload `release/…-chrome-*.zip` in the
+[Chrome Web Store dashboard](https://chrome.google.com/webstore/devconsole) (one-time $5 fee) and
+`release/…-firefox-*.zip` at [addons.mozilla.org](https://addons.mozilla.org/developers/) (free).
+
+**Automated on tag:** the release workflow also publishes to the stores when these repository secrets
+are set (the steps are skipped otherwise):
+
+| Secret | Where to get it |
+| --- | --- |
+| `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` | AMO → *Manage API Keys* (`web-ext sign`, channel `listed`) |
+| `CWS_EXTENSION_ID` | the item's id in the Chrome Web Store dashboard |
+| `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` | Google Cloud OAuth client for the Chrome Web Store API |
+
+The Firefox add-on id is `colorway@arturminchukov` (see `scripts/manifest.mjs`).
+
+### Signed .xpi for self-distribution (Firefox)
+
+Produce a Mozilla-signed `.xpi` (installable by clicking, without a public AMO listing) via the
+`unlisted` channel:
+
+```bash
+export AMO_JWT_ISSUER="user:123456:78"   # AMO -> Manage API Keys
+export AMO_JWT_SECRET="<secret>"
+yarn sign:firefox                        # builds + signs -> web-ext-artifacts/*.xpi
+```
+
+Set `AMO_CHANNEL=listed` to submit to the public AMO listing instead. Each signature needs a new
+version (bump `package.json`, or build with `COLORWAY_VERSION`).
+
+### Build instructions for AMO reviewers
+
+Every script in the add-on is bundled from TypeScript with Vite, so the source is submitted alongside
+the build:
+
+```bash
+yarn package:source   # -> release/colorway-source-<version>.zip
+```
+
+Reproduce the exact build:
+
+```
+Build environment
+- OS: Linux, macOS, or Windows
+- Node.js: 24.x
+- Yarn: 4.15 (provided via Corepack)
+
+Steps
+1. corepack enable
+2. yarn install --immutable
+3. yarn build
+
+Result
+- The add-on's scripts are dist/firefox/{content,background,options,panel,picker,frame}.js.
+- Each is produced by Vite/esbuild (versions pinned in yarn.lock) as a standalone IIFE bundled from
+  the TypeScript sources under src/. No minification is applied, so the output stays readable.
+- scripts/manifest.mjs generates dist/firefox/manifest.json.
+- public/ (HTML, CSS) is copied verbatim.
+
+Entry points: src/content/index.ts, src/background/index.ts, src/panel/index.ts,
+src/options/index.ts, src/content/picker/index.ts, src/content/panelFrame.ts
+```
+
+Reproducibility comes from `yarn.lock` (it pins the exact Vite/esbuild versions), so keep it in the
+submitted source archive.
+
 ## Manual checklist
 
 1. Clicking the toolbar icon opens a draggable window on the page; it shows the current site's
@@ -135,5 +227,14 @@ Handy for checking: `https://play.victoriametrics.com/select/0/prometheus/vmui/`
   briefly for a pending save to land before the window is removed. Reloading or navigating away is a
   different path — the same best-effort `pagehide` flush as before is all that covers it, and a fast
   enough reload can still lose an edit typed in the last 300ms.
-- The extension ships no icons of its own: not needed for a local build, required for store listings.
-- Publishing to the Chrome Web Store and AMO is not set up.
+- No store listing exists yet: the release workflow can publish to both stores, but only once the
+  store credentials are added as repository secrets.
+
+## Privacy
+
+[PRIVACY.md](PRIVACY.md) — nothing leaves your browser; the extension stores only the profiles you
+create yourself.
+
+## License
+
+[MIT](LICENSE) © Artur Minchukov
