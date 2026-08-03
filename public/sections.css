@@ -53,16 +53,36 @@
 .field.tall > textarea { margin-top: 0; }
 /* A note about the field, under the control it explains rather than under its caption. */
 .field > .hint { grid-column: 2 / -1; margin-top: 0; color: var(--muted); font-size: 11px; }
-.section input[type="color"],
-.field > input[type="color"] {
+/* The swatch that opens the palette. Same size and shape the bare
+   <input type="color"> had, so no field's layout moves. */
+.color-field {
+  position: relative;
+  display: inline-flex;
+  justify-self: start;
+}
+.field > .color-field { justify-self: start; }
+.swatch-button {
   width: 30px;
   height: 26px;
-  justify-self: start;
   padding: 0;
   border: 1px solid var(--field-line);
   border-radius: 7px;
-  background: none;
   cursor: pointer;
+}
+.swatch-button:hover { border-color: var(--accent); }
+/* A color the rule does not set yet: live, but visibly not in play until touched. */
+.color-field.unset .swatch-button { border-style: dashed; opacity: .65; }
+/* The browser's own picker, reachable only through "Custom…": it has to be in the
+   document for a programmatic click to open it, but it is never the visible control. */
+.color-field > .native-color {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .mono {
   font: 500 11.5px/1.3 ui-monospace, SFMono-Regular, monospace;
@@ -232,8 +252,6 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
   color: var(--muted);
 }
 .color .glyph { display: block; color: var(--muted); }
-/* A color the rule does not set yet: live, but visibly not in play until touched. */
-.color.unset input[type="color"] { border-style: dashed; opacity: .65; }
 /* Always on screen so the row's shape never changes under the pointer, inert while
    there is nothing to put back. */
 .color .reset[disabled] { opacity: .35; cursor: default; }
@@ -316,11 +334,9 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .icon,
 .pick,
 .section .link,
-.section > .primary,
-.section input[type="color"] {
+.section > .primary {
   transition: background-color .12s ease, color .12s ease, border-color .12s ease, filter .12s ease;
 }
-.section input[type="color"]:hover { border-color: var(--accent); }
 .icon:active,
 .pick:active,
 .modes button:active,
@@ -333,8 +349,84 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
   .pick,
   .section .link,
   .section > .primary,
-  .section input[type="color"],
   .disclosure::before {
     transition: none;
   }
+}
+
+/* The palette. Anchored to its own field rather than to the document, so it can never
+   escape the panel's 340px window; .up / .right are set by colorField's place(). */
+.palette-popover {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 216px;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+}
+.palette-popover.up { top: auto; bottom: calc(100% + 6px); }
+.palette-popover.right { left: auto; right: 0; }
+
+.palette-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+/* Saved colors have no ceiling, so the grid scrolls rather than growing the popover
+   past the window it lives in. */
+.palette-grid.saved { max-height: 84px; overflow-y: auto; }
+.palette-grid button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--field-line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.palette-grid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.palette-list { display: grid; gap: 5px; max-height: 132px; overflow-y: auto; }
+.palette-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); }
+.palette-row i { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--field-line); display: block; }
+.palette-row input[type="text"],
+.palette-name input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  background: var(--field);
+  color: var(--fg);
+  border: 1px solid var(--field-line);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font: 400 11.5px/1.4 system-ui, -apple-system, sans-serif;
+}
+.palette-row input[type="text"]:focus,
+.palette-name input[type="text"]:focus { border-color: var(--accent); outline: none; }
+.palette-row .remove:hover { color: var(--danger); }
+
+.palette-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.palette-actions .link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  font: 400 11.5px/1.3 system-ui;
+  cursor: pointer;
+}
+.palette-actions .link:hover:not([disabled]) { color: var(--fg); text-decoration: underline; }
+.palette-actions .link[disabled] { opacity: .4; cursor: default; }
+.palette-name { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); }
+.palette-empty { color: var(--muted); font-size: 11px; }
+
+.swatch-button,
+.palette-grid button,
+.palette-actions .link {
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .swatch-button,
+  .palette-grid button,
+  .palette-actions .link { transition: none; }
 }
