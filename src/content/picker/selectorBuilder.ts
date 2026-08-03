@@ -1,7 +1,7 @@
 import { isModifierToken, isStableToken } from "../../core/selector";
 
 /** Marks nodes the picker itself renders, so it can never target its own ui. */
-export const PICKER_UI_ATTR = "data-color-vmui-ui";
+export const PICKER_UI_ATTR = "data-colorway-ui";
 
 /** Attributes that describe what an element is, rather than how it was built. */
 const SEMANTIC_ATTRS = ["data-testid", "data-test", "data-qa", "aria-label", "role", "name"];

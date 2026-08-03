@@ -3,7 +3,7 @@ import { activePatterns } from "../core/permissions";
 import { browser, settingsRepo } from "../shared/browser";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
-const SCRIPT_ID = "vmui";
+const SCRIPT_ID = "colorway";
 
 async function grantedPatterns(patterns: string[]): Promise<string[]> {
   const checks = await Promise.all(
@@ -58,7 +58,7 @@ async function syncRegistration(): Promise<void> {
   await injectIntoOpenTabs(wanted);
 }
 
-type StartPickerRequest = { type: "color-vmui:start-picker"; tabId: number };
+type StartPickerRequest = { type: "colorway:start-picker"; tabId: number };
 
 /**
  * The picker is a separate bundle injected on demand, so the always-on content
@@ -67,7 +67,7 @@ type StartPickerRequest = { type: "color-vmui:start-picker"; tabId: number };
  */
 browser.runtime.onMessage.addListener((message: unknown): Promise<boolean> | undefined => {
   const request = message as StartPickerRequest;
-  if (request?.type !== "color-vmui:start-picker") return undefined;
+  if (request?.type !== "colorway:start-picker") return undefined;
 
   return browser.scripting
     .executeScript({ target: { tabId: request.tabId }, files: ["picker.js"] })
@@ -75,7 +75,7 @@ browser.runtime.onMessage.addListener((message: unknown): Promise<boolean> | und
     .catch(() => false);
 });
 
-type TabIdRequest = { type: "color-vmui:tab-id" };
+type TabIdRequest = { type: "colorway:tab-id" };
 
 /**
  * The panel frame runs in an ordinary page and has no notion of its own tab id;
@@ -85,7 +85,7 @@ type TabIdRequest = { type: "color-vmui:tab-id" };
 browser.runtime.onMessage.addListener(
   (message: unknown, sender: Runtime.MessageSender): Promise<number | undefined> | undefined => {
     const request = message as TabIdRequest;
-    if (request?.type !== "color-vmui:tab-id") return undefined;
+    if (request?.type !== "colorway:tab-id") return undefined;
     return Promise.resolve(sender.tab?.id);
   },
 );

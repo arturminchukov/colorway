@@ -147,7 +147,7 @@ type TabTarget = { id?: number; url?: string };
  */
 function sendPreview(next: Settings, tab: TabTarget): void {
   if (tab.id === undefined || !tab.url) return;
-  const message: PreviewMessage = { type: "color-vmui:preview", profile: pickProfile(tab.url, next.profiles) };
+  const message: PreviewMessage = { type: "colorway:preview", profile: pickProfile(tab.url, next.profiles) };
   // Rejects when no content script is listening (an unconfigured tab, a
   // browser-internal page) — expected, and not this function's problem to surface.
   void browser.tabs.sendMessage(tab.id, message).catch(() => {});
@@ -252,7 +252,7 @@ function commit(next: Settings, tab: TabTarget): void {
  * for the same snapshot.
  *
  * This is now a belt, not the primary defense: panelFrame.ts's stop() runs an
- * explicit flush handshake (see the color-vmui:flush listener below) before it ever
+ * explicit flush handshake (see the colorway:flush listener below) before it ever
  * removes the container, which covers the routine close-button/toolbar-icon path.
  * `pagehide` stays wired for the case that handshake cannot cover at all — the page
  * navigating away or the browser exiting out from under this window entirely — and
@@ -308,7 +308,7 @@ function failPick(message: string, tabId: number): void {
  * window: without it, picking in one tab would dim another tab's window too.
  */
 function sendPicking(active: boolean, tabId: number): void {
-  void browser.runtime.sendMessage({ type: "color-vmui:picking", tabId, active }).catch(() => {});
+  void browser.runtime.sendMessage({ type: "colorway:picking", tabId, active }).catch(() => {});
 }
 
 /**
@@ -334,7 +334,7 @@ function startPicking(url: string, tabId: number | undefined, ruleId: string): v
         failPick("Without access to this site the picker cannot run.", tabId);
         return;
       }
-      const started = await browser.runtime.sendMessage({ type: "color-vmui:start-picker", tabId });
+      const started = await browser.runtime.sendMessage({ type: "colorway:start-picker", tabId });
       if (started === false) {
         pickTargetRuleId = null;
         failPick("The picker cannot run on this tab.", tabId);
@@ -407,7 +407,7 @@ async function tabStatus(
   const empty = { states: new Map<string, RuleState>(), faviconFellBack: false };
   if (tabId === undefined) return empty;
   try {
-    const reply = (await browser.tabs.sendMessage(tabId, { type: "color-vmui:status" })) as StatusResponse;
+    const reply = (await browser.tabs.sendMessage(tabId, { type: "colorway:status" })) as StatusResponse;
     return {
       states: new Map(reply.matches.map((match) => [match.ruleId, match.state])),
       faviconFellBack: reply.faviconFellBack,
@@ -628,7 +628,7 @@ browser.tabs.onUpdated.addListener((tabId) => {
   if (tabId === ownTabId) renderIfIdle();
 });
 
-type PickedMessage = { type: "color-vmui:picked"; selector: string };
+type PickedMessage = { type: "colorway:picked"; selector: string };
 
 // The picker (a separately injected script) sends this once, on click, then stops.
 // This listener never answers back, and browser.runtime.onMessage also delivers
@@ -638,8 +638,8 @@ type PickedMessage = { type: "color-vmui:picked"; selector: string };
 // whichever listener the message was actually meant for.
 browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.MessageSender): undefined => {
   const picked = message as PickedMessage;
-  const cancelled = (message as { type?: string })?.type === "color-vmui:pick-cancelled";
-  if (picked?.type !== "color-vmui:picked" && !cancelled) return undefined;
+  const cancelled = (message as { type?: string })?.type === "colorway:pick-cancelled";
+  if (picked?.type !== "colorway:picked" && !cancelled) return undefined;
 
   // sender.tab identifies the tab the picker actually ran in, synchronously and with
   // no async currentTab() round trip involved — a plain, direct fact about where the
@@ -701,7 +701,7 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
 });
 
 
-type FlushRequest = { type: "color-vmui:flush"; tabId: number };
+type FlushRequest = { type: "colorway:flush"; tabId: number };
 
 // panelFrame.ts's close handshake (see its requestFlush()/stop()): sent once, right
 // before it removes the container, so a pending save gets a chance to land instead
@@ -713,7 +713,7 @@ type FlushRequest = { type: "color-vmui:flush"; tabId: number };
 // meant for.
 browser.runtime.onMessage.addListener((message: unknown): Promise<undefined> | undefined => {
   const request = message as FlushRequest;
-  if (request?.type !== "color-vmui:flush") return undefined;
+  if (request?.type !== "colorway:flush") return undefined;
   if (request.tabId !== ownTabId) return undefined;
 
   return flushAndAwaitSave().then(() => undefined);

@@ -12,7 +12,7 @@ export function createTitleApplier(): { set(prefix: string): void; clear(): void
   const observe = (): void => {
     if (!observer) {
       observer = new MutationObserver(() => {
-        // Re-subscribe on every mutation, not just react to it: if vmui
+        // Re-subscribe on every mutation, not just react to it: if the page
         // replaces the whole <title> element, this callback fires from the
         // head-level childList observation below, and calling observe()
         // again re-binds to the *new* title node so later text-only edits
@@ -26,7 +26,7 @@ export function createTitleApplier(): { set(prefix: string): void; clear(): void
     }
 
     const title = document.querySelector("title");
-    // vmui rewrites document.title on every route change; the title element
+    // An SPA rewrites document.title on every route change; the title element
     // itself can also be replaced, so watch head as well.
     if (title) observer.observe(title, { childList: true, characterData: true, subtree: true });
     if (document.head) observer.observe(document.head, { childList: true });

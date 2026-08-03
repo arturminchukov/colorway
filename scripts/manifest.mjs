@@ -1,6 +1,6 @@
 const base = {
   manifest_version: 3,
-  name: "color-vmui",
+  name: "Colorway",
   version: "0.1.0",
   description: "Recolors picked elements of any site and marks the tab so instances are told apart",
   // No "tabs": the panel frame reads the active tab through activeTab (granted by the
@@ -8,7 +8,7 @@ const base = {
   // already configured.
   permissions: ["storage", "scripting", "activeTab"],
   optional_host_permissions: ["*://*/*"],
-  action: { default_title: "color-vmui" },
+  action: { default_title: "Colorway" },
   options_ui: { page: "options.html", open_in_tab: true },
   // panel.html is loaded in an iframe injected into the clicked page, on any
   // site — not just ones the extension has host permission for — so it must be
@@ -28,7 +28,7 @@ const overrides = {
   firefox: {
     background: { scripts: ["background.js"] },
     browser_specific_settings: {
-      gecko: { id: "color-vmui@arturminchukov", strict_min_version: "128.0" },
+      gecko: { id: "colorway@arturminchukov", strict_min_version: "128.0" },
     },
   },
 };

@@ -395,7 +395,7 @@ function render(): void {
   app.replaceChildren();
 
   const title = document.createElement("h1");
-  title.textContent = "color-vmui";
+  title.textContent = "Colorway";
   app.append(title, pageStatusEl);
 
   if (settings.profiles.length === 0) {
@@ -411,7 +411,7 @@ function render(): void {
   add.className = "primary";
   add.textContent = "Add profile";
   add.addEventListener("click", () => {
-    const nextSettings: Settings = { ...settings, profiles: [...settings.profiles, createProfile("vmui")] };
+    const nextSettings: Settings = { ...settings, profiles: [...settings.profiles, createProfile("New profile")] };
     settingsRepo
       .save(nextSettings)
       .then(() => {

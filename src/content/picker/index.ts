@@ -4,7 +4,7 @@ import { buildSelector, PICKER_UI_ATTR } from "./selectorBuilder";
 
 declare global {
   interface Window {
-    __colorVmuiPickerStop?: () => void;
+    __colorwayPickerStop?: () => void;
   }
 }
 
@@ -20,7 +20,7 @@ function isOwnUi(target: EventTarget | null): boolean {
  */
 function start(): void {
   // Re-injection restarts the mode rather than stacking a second set of listeners.
-  window.__colorVmuiPickerStop?.();
+  window.__colorwayPickerStop?.();
 
   const highlight = createHighlight();
 
@@ -39,7 +39,7 @@ function start(): void {
     const selector = buildSelector(event.target);
     stop();
     // Nobody listening means the panel was closed mid-pick; nothing to report to.
-    void browser.runtime.sendMessage({ type: "color-vmui:picked", selector }).catch(() => {});
+    void browser.runtime.sendMessage({ type: "colorway:picked", selector }).catch(() => {});
   };
 
   const onKey = (event: KeyboardEvent): void => {
@@ -48,7 +48,7 @@ function start(): void {
     // The panel dimmed its window when this pick started and has nothing else to
     // learn that it ended: no selector is coming. Nobody listening means the window
     // was closed mid-pick, which needs no undimming either.
-    void browser.runtime.sendMessage({ type: "color-vmui:pick-cancelled" }).catch(() => {});
+    void browser.runtime.sendMessage({ type: "colorway:pick-cancelled" }).catch(() => {});
   };
 
   function stop(): void {
@@ -56,13 +56,13 @@ function start(): void {
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("keydown", onKey, true);
     highlight.destroy();
-    window.__colorVmuiPickerStop = undefined;
+    window.__colorwayPickerStop = undefined;
   }
 
   document.addEventListener("mousemove", onMove, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("keydown", onKey, true);
-  window.__colorVmuiPickerStop = stop;
+  window.__colorwayPickerStop = stop;
 }
 
 start();

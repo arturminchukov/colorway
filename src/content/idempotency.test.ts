@@ -5,8 +5,8 @@ import { applyStyle } from "./styleInjector";
 import { createTitleApplier } from "./titleApplier";
 
 /**
- * Every DOM applier re-runs from a MutationObserver, because vmui is an SPA that
- * rebuilds the header and rewrites the title on every route change. That makes one
+ * Every DOM applier re-runs from a MutationObserver, because the page may be an SPA
+ * that repaints and rewrites the title on every route change. That makes one
  * invariant load-bearing for all of them: a repeated apply, with nothing changed,
  * must not write to the DOM. An unconditional write notifies the observer that
  * scheduled the call, which applies again, which writes again — and since observer

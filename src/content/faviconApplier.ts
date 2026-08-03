@@ -2,8 +2,8 @@
 // icon link apart from the site's original ones — including the site's links after
 // they've been neutralized below (rel moved into ORIGINAL_REL_ATTR) — instead of
 // re-reading whatever this applier itself last put in <head>.
-export const OWN_ATTR = "data-color-vmui-icon";
-export const ORIGINAL_REL_ATTR = "data-color-vmui-was-rel";
+export const OWN_ATTR = "data-colorway-icon";
+export const ORIGINAL_REL_ATTR = "data-colorway-was-rel";
 
 export function createFaviconApplier(): { set(dataUrl: string | null): void; clear(): void } {
   let current: string | null = null;
@@ -13,7 +13,7 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void; cle
     head.querySelectorAll(`link[${OWN_ATTR}]`).forEach((link) => link.remove());
   };
 
-  // vmui's icon links were neutralized (rel moved into ORIGINAL_REL_ATTR) rather
+  // The site's icon links were neutralized (rel moved into ORIGINAL_REL_ATTR) rather
   // than deleted; give them their rel back so the tab's own favicon works again.
   const restoreOriginals = (head: HTMLHeadElement): void => {
     head.querySelectorAll<HTMLLinkElement>(`link[${ORIGINAL_REL_ATTR}]`).forEach((link) => {
@@ -32,7 +32,7 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void; cle
       return;
     }
 
-    // vmui ships three icon links; neutralize them (drop rel, remember it in
+    // A site usually ships several icon links; neutralize them (drop rel, remember it in
     // ORIGINAL_REL_ATTR) instead of deleting, so restoreOriginals() can bring
     // them back intact once the profile stops matching.
     head.querySelectorAll<HTMLLinkElement>(`link[rel~="icon"]:not([${OWN_ATTR}])`).forEach((link) => {
@@ -84,7 +84,7 @@ export function createFaviconApplier(): { set(dataUrl: string | null): void; cle
       apply();
       observe();
     },
-    // No profile applies any more: take our link out, give vmui its icons back and
+    // No profile applies any more: take our link out, give the site its icons back and
     // stop watching. observe() rebuilds the subscription if a profile comes back.
     clear() {
       current = null;

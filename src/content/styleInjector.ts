@@ -20,7 +20,7 @@ export function applyStyleById(id: string, css: string | null): void {
   if (!element.isConnected) document.documentElement.appendChild(element);
 }
 
-const STYLE_ID = "color-vmui-style";
+const STYLE_ID = "colorway-style";
 
 /** Idempotent: keeps exactly one style element, updates it in place. */
 export function applyStyle(css: string | null): void {

@@ -6,7 +6,7 @@ const sendMessage = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../shared/browser", () => ({ browser: { runtime: { sendMessage } } }));
 
 afterEach(() => {
-  window.__colorVmuiPickerStop?.();
+  window.__colorwayPickerStop?.();
   document.body.replaceChildren();
   sendMessage.mockClear();
   vi.resetModules();
@@ -25,7 +25,7 @@ describe("picker", () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0][0]).toEqual({
-      type: "color-vmui:picked",
+      type: "colorway:picked",
       selector: ".vm-header",
     });
     // Stopped: a second click must not report anything.
@@ -49,13 +49,13 @@ describe("picker", () => {
     document.querySelector("header")!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 
-    expect(document.querySelectorAll("[data-color-vmui-ui]")).toHaveLength(0);
-    expect(window.__colorVmuiPickerStop).toBeUndefined();
+    expect(document.querySelectorAll("[data-colorway-ui]")).toHaveLength(0);
+    expect(window.__colorwayPickerStop).toBeUndefined();
 
     // Cancelling is reported, so the panel can undim the window it faded when this
     // pick started — nothing else would ever tell it the pick is over.
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage.mock.calls[0][0]).toEqual({ type: "color-vmui:pick-cancelled" });
+    expect(sendMessage.mock.calls[0][0]).toEqual({ type: "colorway:pick-cancelled" });
 
     // Still stopped: a click after Escape reports no selector.
     document.querySelector("header")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

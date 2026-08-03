@@ -51,15 +51,15 @@ async function queryStatus(): Promise<StatusResponse> {
   const listener = runtimeOnMessageAddListener.mock.calls[0][0] as (
     message: StatusRequest,
   ) => Promise<StatusResponse>;
-  return listener({ type: "color-vmui:status" });
+  return listener({ type: "colorway:status" });
 }
 
 /** Drives the same onMessage listener the panel's preview send hits. */
 async function sendPreview(profile: Profile | null): Promise<StatusResponse> {
   const listener = runtimeOnMessageAddListener.mock.calls[0][0] as (
-    message: { type: "color-vmui:preview"; profile: Profile | null },
+    message: { type: "colorway:preview"; profile: Profile | null },
   ) => Promise<StatusResponse>;
-  return listener({ type: "color-vmui:preview", profile });
+  return listener({ type: "colorway:preview", profile });
 }
 
 /** Imports the module and waits for main()'s own initial (inert, no-profile) refresh(). */
@@ -70,7 +70,7 @@ async function boot(): Promise<void> {
 }
 
 afterEach(() => {
-  delete (window as { __colorVmuiLoaded?: boolean }).__colorVmuiLoaded;
+  delete (window as { __colorwayLoaded?: boolean }).__colorwayLoaded;
   load.mockReset();
   tint.mockReset();
   storageOnChangedAddListener.mockReset();
@@ -78,8 +78,8 @@ afterEach(() => {
   vi.resetModules();
   // Preview/real style elements hang off documentElement (see styleInjector.ts and
   // applyPreview), so clearing <head>/<body> alone would miss them.
-  document.getElementById("color-vmui-preview")?.remove();
-  document.getElementById("color-vmui-style")?.remove();
+  document.getElementById("colorway-preview")?.remove();
+  document.getElementById("colorway-style")?.remove();
 });
 
 describe("favicon fallback flag survives overlapping resolutions", () => {
@@ -137,8 +137,8 @@ describe("favicon fallback flag survives overlapping resolutions", () => {
 });
 
 describe("instant color preview", () => {
-  const PREVIEW_ID = "color-vmui-preview";
-  const STYLE_ID = "color-vmui-style";
+  const PREVIEW_ID = "colorway-preview";
+  const STYLE_ID = "colorway-style";
 
   it("paints a previewed profile through its own style element, separate from the real one", async () => {
     await boot();

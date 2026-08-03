@@ -1,4 +1,4 @@
-# color-vmui
+# Colorway
 
 A Chrome and Firefox extension that recolors picked elements of any site and marks its tab, so you
 never confuse prod with staging again.

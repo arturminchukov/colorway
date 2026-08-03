@@ -425,12 +425,12 @@ describe("panel: instant color preview", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
 
     await vi.waitFor(() =>
-      expect(tabsSendMessage.mock.calls.some(([, message]) => (message as { type?: string })?.type === "color-vmui:preview")).toBe(true),
+      expect(tabsSendMessage.mock.calls.some(([, message]) => (message as { type?: string })?.type === "colorway:preview")).toBe(true),
     );
 
     // Sent to tab 1, the tab loadModule() set up as the active one being edited.
     const previewCall = tabsSendMessage.mock.calls.find(
-      ([, message]) => (message as { type?: string })?.type === "color-vmui:preview",
+      ([, message]) => (message as { type?: string })?.type === "colorway:preview",
     )!;
     expect(previewCall[0]).toBe(1);
     const sentProfile = (previewCall[1] as { profile: Profile | null }).profile;
@@ -446,7 +446,7 @@ describe("panel: instant color preview", () => {
   it("does not blow up when the previewed tab has no listening content script", async () => {
     tabsSendMessage.mockImplementation((_tabId, message) => {
       const type = (message as { type?: string })?.type;
-      if (type === "color-vmui:preview") return Promise.reject(new Error("Could not establish connection"));
+      if (type === "colorway:preview") return Promise.reject(new Error("Could not establish connection"));
       return Promise.resolve({ profileName: "site", matches: [], faviconFellBack: false });
     });
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
@@ -555,7 +555,7 @@ describe("panel: answering panelFrame.ts's close handshake", () => {
     save.mockImplementationOnce(() => write.promise);
 
     let settled = false;
-    const answered = flushListener()({ type: "color-vmui:flush", tabId: 1 })!.then(() => {
+    const answered = flushListener()({ type: "colorway:flush", tabId: 1 })!.then(() => {
       settled = true;
     });
 
@@ -586,7 +586,7 @@ describe("panel: answering panelFrame.ts's close handshake", () => {
     // The listener never answers a message about another tab — it must return
     // undefined synchronously, same as every other message-type/tab-id mismatch in
     // this file, rather than claiming the response channel.
-    const result = flushListener()({ type: "color-vmui:flush", tabId: 2 });
+    const result = flushListener()({ type: "colorway:flush", tabId: 2 });
     expect(result).toBeUndefined();
 
     await vi.advanceTimersByTimeAsync(0);
@@ -600,7 +600,7 @@ describe("panel: answering panelFrame.ts's close handshake", () => {
   it("resolves immediately when nothing is pending", async () => {
     await loadModule(settingsWith(profile({ titlePrefix: "" })));
 
-    const result = await flushListener()({ type: "color-vmui:flush", tabId: 1 });
+    const result = await flushListener()({ type: "colorway:flush", tabId: 1 });
     expect(result).toBeUndefined();
     expect(save).not.toHaveBeenCalled();
   });
@@ -688,7 +688,7 @@ describe("panel: the rules section's own disclosure", () => {
 
     vi.useFakeTimers();
     pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
     await vi.advanceTimersByTimeAsync(0);
@@ -784,7 +784,7 @@ describe("panel: refreshing rule status once the panel's own save settles", () =
     // picking up the storage write.
     tabsSendMessage.mockImplementation((_tabId, message) => {
       const type = (message as { type?: string })?.type;
-      if (type !== "color-vmui:status") return Promise.resolve({ profileName: "site", matches: [], faviconFellBack: false });
+      if (type !== "colorway:status") return Promise.resolve({ profileName: "site", matches: [], faviconFellBack: false });
       const savedRules = ((save.mock.calls.at(-1)?.[0] as Settings | undefined)?.profiles[0]?.rules ?? []) as { id: string }[];
       return Promise.resolve({
         profileName: "site",
@@ -800,7 +800,7 @@ describe("panel: refreshing rule status once the panel's own save settles", () =
     // debounced save fires, so the content script has not been told about the new
     // rule yet — the dot must render "unknown", not a false "matched" or "not-found".
     pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
     await vi.advanceTimersByTimeAsync(0);
@@ -922,7 +922,7 @@ describe("panel: adding a rule via the picker", () => {
     expect(getApp().querySelector('.editor input[type="text"]')).not.toBeNull();
     expect(pickButton().textContent).toBe("Select element");
     expect(permissionsRequest).not.toHaveBeenCalled();
-    expect(runtimeSendMessage).not.toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 });
+    expect(runtimeSendMessage).not.toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 });
 
     // Let the added rule's debounced save land: a real timer left pending here would
     // fire during a later test and add a stray call to the shared `save` mock.
@@ -939,12 +939,12 @@ describe("panel: adding a rule via the picker", () => {
     await startPick();
 
     await vi.waitFor(() =>
-      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 }),
     );
     expect(permissionsRequest).toHaveBeenCalledWith({ origins: ["*://example.com/*"] });
     // The window fades while the page is being picked on, and only once the picker
     // really started.
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: true });
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:picking", tabId: 1, active: true });
     expect(getApp().querySelector(".section.error")).toBeNull();
   });
 
@@ -956,11 +956,11 @@ describe("panel: adding a rule via the picker", () => {
     runtimeSendMessage.mockResolvedValue(true);
     await startPick();
     await vi.waitFor(() =>
-      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 }),
     );
 
     pickedListener()(
-      { type: "color-vmui:picked", selector: ".vm-header" },
+      { type: "colorway:picked", selector: ".vm-header" },
       { tab: { id: 1, url: "https://example.com" } },
     );
 
@@ -969,7 +969,7 @@ describe("panel: adding a rule via the picker", () => {
     );
     expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
     // And the window is undimmed again.
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: false });
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:picking", tabId: 1, active: false });
 
     // Flush the pick's debounced save: a real timer left pending here would fire
     // during a later test and land a stray call on the shared `save` mock.
@@ -984,14 +984,14 @@ describe("panel: adding a rule via the picker", () => {
     runtimeSendMessage.mockResolvedValue(true);
     await startPick();
     await vi.waitFor(() =>
-      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:start-picker", tabId: 1 }),
+      expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 }),
     );
 
-    pickedListener()({ type: "color-vmui:pick-cancelled" }, { tab: { id: 1, url: "https://example.com" } });
+    pickedListener()({ type: "colorway:pick-cancelled" }, { tab: { id: 1, url: "https://example.com" } });
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "color-vmui:picking", tabId: 1, active: false });
+    expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:picking", tabId: 1, active: false });
     // Cancelling re-renders (the waiting state goes back to being a button), so wait
     // for that render rather than reading a half-rebuilt #app.
     await vi.waitFor(() => expect(getApp().querySelector(".pick")).not.toBeNull());
@@ -1030,7 +1030,7 @@ describe("panel: adding a rule via the picker", () => {
     // succeeds: the stale error must not survive the re-render it triggers. Same tab
     // (id 1) the error was raised for, per loadModule()'s default active tab.
     pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
 
@@ -1046,12 +1046,12 @@ describe("panel: adding a rule via the picker", () => {
     await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
   });
 
-  it("creates the rule and leaves it expanded when a color-vmui:picked message arrives", async () => {
+  it("creates the rule and leaves it expanded when a colorway:picked message arrives", async () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ rules: [] })));
 
     const result = pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
     // The listener never answers back; it must not claim the response channel.
@@ -1074,7 +1074,7 @@ describe("panel: adding a rule via the picker", () => {
     await loadModule(settingsWith(profile({ enabled: false, rules: [] })));
 
     pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
 
@@ -1118,7 +1118,7 @@ describe("panel: adding a rule via the picker", () => {
     tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
     await loadModule(settingsWith(profile({ rules: [] })));
 
-    const result = pickedListener()({ type: "color-vmui:picked", selector: ".picked" }, { tab: undefined });
+    const result = pickedListener()({ type: "colorway:picked", selector: ".picked" }, { tab: undefined });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1139,7 +1139,7 @@ describe("panel: adding a rule via the picker", () => {
     const markerBefore = getApp().firstElementChild;
 
     const result = pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 2, url: "https://other.example" } },
     );
     await vi.advanceTimersByTimeAsync(300);
@@ -1258,7 +1258,7 @@ describe("panel: the painting profile wins over an earlier disabled match", () =
 
     // A rule picked on the page must attach to "b" too, not to "a" ahead of it.
     const result = pickedListener()(
-      { type: "color-vmui:picked", selector: ".picked" },
+      { type: "colorway:picked", selector: ".picked" },
       { tab: { id: 1, url: "https://example.com" } },
     );
     expect(result).toBeUndefined();

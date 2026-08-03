@@ -5,7 +5,7 @@ import type { PanelPosition } from "../storage/panelPositionRepo";
 
 declare global {
   interface Window {
-    __colorVmuiPanelStop?: () => void;
+    __colorwayPanelStop?: () => void;
   }
 }
 
@@ -93,10 +93,10 @@ const TEMPLATE = `
 </style>
 <div class="panel">
   <div class="header">
-    <span class="name">color-vmui</span>
+    <span class="name">Colorway</span>
     <button type="button" class="close" aria-label="Close">×</button>
   </div>
-  <iframe title="color-vmui"></iframe>
+  <iframe title="Colorway"></iframe>
 </div>
 `;
 
@@ -107,7 +107,7 @@ const TEMPLATE = `
  */
 async function requestTabId(): Promise<number | undefined> {
   try {
-    return (await browser.runtime.sendMessage({ type: "color-vmui:tab-id" })) as number | undefined;
+    return (await browser.runtime.sendMessage({ type: "colorway:tab-id" })) as number | undefined;
   } catch {
     return undefined;
   }
@@ -130,7 +130,7 @@ const FLUSH_TIMEOUT_MS = 500;
  */
 async function requestFlush(tabId: number | undefined): Promise<void> {
   if (tabId === undefined) return;
-  const message = { type: "color-vmui:flush", tabId };
+  const message = { type: "colorway:flush", tabId };
   await Promise.race([
     browser.runtime.sendMessage(message).catch(() => undefined),
     new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
@@ -234,7 +234,7 @@ async function open(): Promise<() => Promise<void>> {
    */
   function onPickingMessage(message: unknown): undefined {
     const picking = message as { type?: string; tabId?: number; active?: boolean };
-    if (picking?.type !== "color-vmui:picking") return undefined;
+    if (picking?.type !== "colorway:picking") return undefined;
     if (resolvedTabId === undefined || picking.tabId !== resolvedTabId) return undefined;
     setPicking(picking.active === true);
     return undefined;
@@ -246,7 +246,7 @@ async function open(): Promise<() => Promise<void>> {
     browser.runtime.onMessage.removeListener(onPickingMessage);
     await requestFlush(resolvedTabId);
     container.remove();
-    window.__colorVmuiPanelStop = undefined;
+    window.__colorwayPanelStop = undefined;
   }
 
   header.addEventListener("pointerdown", onHeaderPointerDown);
@@ -274,26 +274,26 @@ async function open(): Promise<() => Promise<void>> {
 
 /**
  * One press of the toolbar icon injects this bundle; a second press injects it
- * again into the same tab. window.__colorVmuiPanelStop is what tells the two apart —
+ * again into the same tab. window.__colorwayPanelStop is what tells the two apart —
  * present means a window is already open (or opening), so this call closes it
  * instead of stacking a second one, exactly like picker/index.ts's own restart
  * handle. The slot is claimed synchronously, before the position has even loaded, so
  * a rapid second click can never race a still-opening first one into two windows.
  */
 function toggle(): void {
-  if (window.__colorVmuiPanelStop) {
-    window.__colorVmuiPanelStop();
+  if (window.__colorwayPanelStop) {
+    window.__colorwayPanelStop();
     return;
   }
 
   let cancelled = false;
-  window.__colorVmuiPanelStop = () => {
+  window.__colorwayPanelStop = () => {
     cancelled = true;
   };
 
   void open().then((stop) => {
     if (cancelled) stop();
-    else window.__colorVmuiPanelStop = stop;
+    else window.__colorwayPanelStop = stop;
   });
 }
 

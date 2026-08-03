@@ -756,9 +756,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"color-vmui@workspace:.":
+"colorway@workspace:.":
   version: 0.0.0-use.local
-  resolution: "color-vmui@workspace:."
+  resolution: "colorway@workspace:."
   dependencies:
     "@types/webextension-polyfill": "npm:^0.12.5"
     eslint: "npm:^10.8.0"

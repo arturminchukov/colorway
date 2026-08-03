@@ -39,7 +39,7 @@ async function buildTarget(target) {
         lib: {
           entry: resolve(root, entry),
           formats: ["iife"],
-          name: `colorVmui_${name}`,
+          name: `colorway_${name}`,
           fileName: () => `${name}.js`,
         },
       },

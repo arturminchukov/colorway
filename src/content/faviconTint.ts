@@ -5,8 +5,8 @@ const ICON_SIZE = 64;
 /**
  * Largest declared icon, else the conventional location. Must find the site's own
  * icon links, not the extension's — createFaviconApplier() (see faviconApplier.ts)
- * injects its own `[data-color-vmui-icon]` link and neutralizes the site's originals
- * by moving their `rel` into `[data-color-vmui-was-rel]`, so after the first apply
+ * injects its own `[data-colorway-icon]` link and neutralizes the site's originals
+ * by moving their `rel` into `[data-colorway-was-rel]`, so after the first apply
  * the site's links no longer match `link[rel~="icon"]` at all. Re-reading only that
  * selector from the second apply onward would silently degrade every site to
  * /favicon.ico; picking up the extension's own link instead would tint an

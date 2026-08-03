@@ -48,11 +48,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 afterEach(async () => {
   // Awaited: stop() now runs an async close handshake (see the "close handshake"
   // describe block below) before it removes the container, so a fire-and-forget call
-  // here could leave a stale window (and window.__colorVmuiPanelStop) behind for the
+  // here could leave a stale window (and window.__colorwayPanelStop) behind for the
   // next test, racing whatever that test's own sendMessage mock resolves to. The
   // explicit querySelectorAll cleanup right below is a belt for whatever this leaves
   // in the DOM regardless.
-  await window.__colorVmuiPanelStop?.();
+  await window.__colorwayPanelStop?.();
   document.querySelectorAll(`[${PICKER_UI_ATTR}]`).forEach((node) => node.remove());
   sendMessage.mockReset();
   getURL.mockReset().mockImplementation((path: string) => `chrome-extension://abc/${path}`);
@@ -93,7 +93,7 @@ describe("panelFrame", () => {
     // the "close handshake" tests below), so the removal is no longer synchronous
     // with the second toggle() call above.
     await vi.waitFor(() => expect(panel()).toBeNull());
-    expect(window.__colorVmuiPanelStop).toBeUndefined();
+    expect(window.__colorwayPanelStop).toBeUndefined();
   });
 
   it("restores a stored position on open", async () => {
@@ -190,7 +190,7 @@ describe("panelFrame", () => {
     // (see the describe block below) — sendMessage resolves promptly here, but not
     // synchronously with the click.
     await vi.waitFor(() => expect(panel()).toBeNull());
-    expect(window.__colorVmuiPanelStop).toBeUndefined();
+    expect(window.__colorwayPanelStop).toBeUndefined();
   });
 });
 
@@ -200,8 +200,8 @@ describe("panelFrame: closing waits for the panel's flush handshake", () => {
     const flush = deferred<undefined>();
     sendMessage.mockImplementation((message: unknown) => {
       const type = (message as { type?: string })?.type;
-      if (type === "color-vmui:tab-id") return Promise.resolve(7);
-      if (type === "color-vmui:flush") return flush.promise;
+      if (type === "colorway:tab-id") return Promise.resolve(7);
+      if (type === "colorway:flush") return flush.promise;
       return Promise.resolve(undefined);
     });
 
@@ -209,7 +209,7 @@ describe("panelFrame: closing waits for the panel's flush handshake", () => {
     await vi.waitFor(() => expect(panel()).not.toBeNull());
     // Wait for the tab id round trip so the flush request below carries it, matching
     // what a real close (after the iframe has loaded) would send.
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:tab-id" }));
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "colorway:tab-id" }));
 
     const host = panel()!;
     const closeButton = host.shadowRoot!.querySelector<HTMLElement>(".close")!;
@@ -219,7 +219,7 @@ describe("panelFrame: closing waits for the panel's flush handshake", () => {
     // request must carry the tab id this window resolved for itself.
     await Promise.resolve();
     await Promise.resolve();
-    expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:flush", tabId: 7 });
+    expect(sendMessage).toHaveBeenCalledWith({ type: "colorway:flush", tabId: 7 });
     expect(panel()).not.toBeNull();
 
     flush.resolve(undefined);
@@ -230,14 +230,14 @@ describe("panelFrame: closing waits for the panel's flush handshake", () => {
     load.mockResolvedValue(null);
     sendMessage.mockImplementation((message: unknown) => {
       const type = (message as { type?: string })?.type;
-      if (type === "color-vmui:tab-id") return Promise.resolve(7);
+      if (type === "colorway:tab-id") return Promise.resolve(7);
       // The flush request never resolves — an unresponsive or pre-handshake panel.
       return new Promise<undefined>(() => {});
     });
 
     await openPanel();
     await vi.waitFor(() => expect(panel()).not.toBeNull());
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "color-vmui:tab-id" }));
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "colorway:tab-id" }));
 
     vi.useFakeTimers();
     const host = panel()!;
@@ -321,13 +321,13 @@ describe("panelFrame: dimming while the user picks", () => {
     await vi.waitFor(() => expect(panel()!.shadowRoot!.querySelector("iframe")!.src).toContain("tabId=7"));
 
     const host = panel()!;
-    pickingListener()({ type: "color-vmui:picking", tabId: 7, active: true });
+    pickingListener()({ type: "colorway:picking", tabId: 7, active: true });
     expect(host.style.opacity).toBe("0.3");
     // Not just faded: an opaque-to-clicks window would make the elements under it
     // unpickable, which is the whole point of getting out of the way.
     expect(host.style.pointerEvents).toBe("none");
 
-    pickingListener()({ type: "color-vmui:picking", tabId: 7, active: false });
+    pickingListener()({ type: "colorway:picking", tabId: 7, active: false });
     expect(host.style.opacity).toBe("");
     expect(host.style.pointerEvents).toBe("auto");
   });
@@ -341,7 +341,7 @@ describe("panelFrame: dimming while the user picks", () => {
     await vi.waitFor(() => expect(panel()!.shadowRoot!.querySelector("iframe")!.src).toContain("tabId=7"));
 
     const host = panel()!;
-    pickingListener()({ type: "color-vmui:picking", tabId: 42, active: true });
+    pickingListener()({ type: "colorway:picking", tabId: 42, active: true });
     expect(host.style.opacity).toBe("");
   });
 });

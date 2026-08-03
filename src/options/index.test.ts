@@ -208,7 +208,7 @@ describe("options: the card shows the panel's own sections", () => {
 describe("options: page text is in English", () => {
   it("renders the title, empty state and Add profile button", async () => {
     await loadModule(settingsWith());
-    expect(getApp().querySelector("h1")?.textContent).toBe("color-vmui");
+    expect(getApp().querySelector("h1")?.textContent).toBe("Colorway");
     expect(getApp().querySelector("p.muted")?.textContent).toBe("No profiles yet.");
     expect(buttonNamed(getApp(), "Add profile")).toBeDefined();
   });

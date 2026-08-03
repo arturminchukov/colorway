@@ -11,12 +11,12 @@ import { createTitleApplier } from "./titleApplier";
 
 declare global {
   interface Window {
-    __colorVmuiLoaded?: boolean;
+    __colorwayLoaded?: boolean;
   }
 }
 
-export type StatusRequest = { type: "color-vmui:status" };
-export type PreviewMessage = { type: "color-vmui:preview"; profile: Profile | null };
+export type StatusRequest = { type: "colorway:status" };
+export type PreviewMessage = { type: "colorway:preview"; profile: Profile | null };
 
 /**
  * - "unpainted": buildCss drops this rule entirely (unsafe selector, or no valid
@@ -87,7 +87,7 @@ function buildRuleMatches(profile: Profile | null): RuleMatch[] {
   return profile.rules.map((rule) => ({ ruleId: rule.id, state: ruleState(rule) }));
 }
 
-const PREVIEW_STYLE_ID = "color-vmui-preview";
+const PREVIEW_STYLE_ID = "colorway-preview";
 
 /**
  * Storage writes are debounced, so waiting for them would show a visible lag while
@@ -141,8 +141,8 @@ async function refresh(): Promise<void> {
 
 function main(): void {
   // The background script may inject this file into a tab that already runs it.
-  if (window.__colorVmuiLoaded) return;
-  window.__colorVmuiLoaded = true;
+  if (window.__colorwayLoaded) return;
+  window.__colorwayLoaded = true;
 
   browser.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && SETTINGS_KEY in changes) void refresh();
@@ -151,14 +151,14 @@ function main(): void {
   // The listener type in @types/webextension-polyfill is a union of callback
   // shapes with differing arity, so TS cannot infer `message` from context here.
   browser.runtime.onMessage.addListener((message: unknown): Promise<StatusResponse> | undefined => {
-    if ((message as PreviewMessage)?.type === "color-vmui:preview") {
+    if ((message as PreviewMessage)?.type === "colorway:preview") {
       applyPreview((message as PreviewMessage).profile);
       // The panel never reads this reply (it fires the send-and-forget preview from
       // commit()); reusing StatusResponse just keeps this listener to one return type
       // instead of inventing a second shape nobody consumes.
       return Promise.resolve({ profileName: activeProfile?.name ?? null, matches: [], faviconFellBack });
     }
-    if ((message as StatusRequest)?.type !== "color-vmui:status") return undefined;
+    if ((message as StatusRequest)?.type !== "colorway:status") return undefined;
     return Promise.resolve({
       profileName: activeProfile?.name ?? null,
       matches: buildRuleMatches(activeProfile),
