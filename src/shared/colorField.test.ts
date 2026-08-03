@@ -149,17 +149,38 @@ describe("colorField", () => {
     expect(root.querySelector(".palette-popover")).toBeNull();
   });
 
-  it("stops listening once the popover has closed", () => {
+  it("owes no onPick when the field is detached before an outside click closes it", () => {
     const { root, onPick } = mount();
     swatch(root).click();
     root.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(onPick).toHaveBeenCalledTimes(1);
 
-    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    // A re-render elsewhere (e.g. the other surface's storage.onChanged) tore this
+    // field out of the document while its palette was still open and the color had
+    // moved. Nothing should try to commit that move against a caller who no longer
+    // has anywhere current to put it.
+    root.remove();
+    expect(() => {
+      document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    }).not.toThrow();
+
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("removes all three document listeners on close", () => {
+    // Nothing in the DOM lets a test observe "this listener is gone" behaviourally —
+    // a leaked listener on a stable closure is a retention concern, not one a
+    // dispatched event can surface. Asserting on removeEventListener itself is the
+    // only way to pin the contract; the capture-flag expectations double as a
+    // regression guard for the keydown listener now being bubble-phase (Finding 1).
+    const spy = vi.spyOn(document, "removeEventListener");
+    const { root } = mount();
+    swatch(root).click();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 
-    expect(onPick).toHaveBeenCalledTimes(1);
-    expect(root.querySelector(".palette-popover")).toBeNull();
+    expect(spy).toHaveBeenCalledWith("pointerdown", expect.any(Function), true);
+    expect(spy).toHaveBeenCalledWith("focusin", expect.any(Function), true);
+    expect(spy).toHaveBeenCalledWith("keydown", expect.any(Function));
+
+    spy.mockRestore();
   });
 });
