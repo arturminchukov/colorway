@@ -1,3 +1,5 @@
+import { normalizeHex } from "../core/palette";
+
 /**
  * Caption and control on one row, the same row on both surfaces: the class is what
  * carries the layout (see `.field` in sections.css), so a field of the options page
@@ -23,7 +25,7 @@ export function colorInput(value: string): HTMLInputElement {
   input.type = "color";
   // <input type="color"> rejects shorthand hex, so a bad value would silently become
   // black; a known-good default is more honest than a wrong color.
-  input.value = /^#[0-9a-f]{6}$/i.test(value) ? value : "#3f51b5";
+  input.value = normalizeHex(value) ?? "#3f51b5";
   return input;
 }
 
