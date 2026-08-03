@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { createProfile } from "../core/profile";
+import { saveColor } from "../core/palette";
 import { renderFaviconSection } from "./faviconSection";
 
 describe("renderFaviconSection", () => {
@@ -8,6 +9,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: false,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -23,6 +26,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -38,6 +43,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: false,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle,
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -49,6 +56,8 @@ describe("renderFaviconSection", () => {
     const openWrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: onToggleWhenOpen,
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -67,6 +76,8 @@ describe("renderFaviconSection", () => {
     const first = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -74,6 +85,8 @@ describe("renderFaviconSection", () => {
     const second = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -88,6 +101,8 @@ describe("renderFaviconSection", () => {
         profile,
         icon,
         expanded: true,
+        palette: [],
+        onPaletteChange: vi.fn(),
         onToggle: vi.fn(),
         onPatch: vi.fn(),
         onPatchSettled: vi.fn(),
@@ -126,6 +141,8 @@ describe("renderFaviconSection", () => {
         profile: { ...createProfile("prod"), faviconMode: "original" },
         icon: "https://example.com/favicon.ico",
         expanded: false,
+        palette: [],
+        onPaletteChange: vi.fn(),
         onToggle: vi.fn(),
         onPatch: vi.fn(),
         onPatchSettled: vi.fn(),
@@ -141,6 +158,8 @@ describe("renderFaviconSection", () => {
     const original = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "original" },
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -151,6 +170,8 @@ describe("renderFaviconSection", () => {
     const initials = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "initials" },
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -165,6 +186,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -184,6 +207,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -205,6 +230,8 @@ describe("renderFaviconSection", () => {
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -224,6 +251,8 @@ describe("renderFaviconSection", () => {
     const original = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "original" },
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -233,10 +262,35 @@ describe("renderFaviconSection", () => {
     const tinted = renderFaviconSection({
       profile: { ...createProfile("prod"), faviconMode: "tinted" },
       expanded: true,
+      palette: [],
+      onPaletteChange: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
     expect(tinted.querySelectorAll('input[type="color"]')).toHaveLength(1);
+  });
+
+  it("gives the favicon color field the palette and passes its edits out", () => {
+    const onPaletteChange = vi.fn();
+    const palette = saveColor([], "#ff0000", "prod");
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      palette,
+      onPaletteChange,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+    document.body.replaceChildren(wrap);
+
+    const swatch = wrap.querySelector<HTMLButtonElement>(".color-field .swatch-button")!;
+    swatch.click();
+    expect(wrap.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
+
+    wrap.querySelector<HTMLButtonElement>(".palette-edit")!.click();
+    wrap.querySelector<HTMLButtonElement>(".palette-row .remove")!.click();
+    expect(onPaletteChange).toHaveBeenCalledWith([]);
   });
 });

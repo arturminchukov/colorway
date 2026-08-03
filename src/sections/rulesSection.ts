@@ -1,6 +1,8 @@
 import type { RuleState } from "../content/index";
 import type { ColorRule, Profile } from "../core/profile";
-import { colorInput, labelled, textInput } from "../shared/controls";
+import type { SavedColor } from "../core/palette";
+import { colorField } from "../shared/colorField";
+import { labelled, textInput } from "../shared/controls";
 import { disclosure } from "../shared/disclosure";
 import { crosshairIcon, fillIcon, resetIcon, textIcon } from "../shared/icons";
 
@@ -39,17 +41,23 @@ function renderColor(
   name: string,
   glyph: SVGElement,
   value: string | null,
+  palette: SavedColor[],
   onChange: (next: string | null) => void,
   onSettled: (next: string | null) => void,
+  onPaletteChange: (next: SavedColor[]) => void,
 ): HTMLElement {
-  const color = colorInput(value ?? "#3f51b5");
-  color.setAttribute("aria-label", `${name} color`);
-  // Touching the swatch is the whole intent: a user who moves a color picker wants
-  // that color, and having to tick a box first was one step of ceremony for a
-  // decision they had already made. "Leave this property alone" is still reachable —
-  // that is what the reset button below is for — but it is no longer the gate.
-  color.addEventListener("input", () => onChange(color.value));
-  color.addEventListener("change", () => onSettled(color.value));
+  const color = colorField({
+    value,
+    ariaLabel: `${name} color`,
+    palette,
+    // Touching the swatch is the whole intent: a user who moves a color picker wants
+    // that color, and having to tick a box first was one step of ceremony for a
+    // decision they had already made. "Leave this property alone" is still reachable —
+    // that is what the reset button below is for — but it is no longer the gate.
+    onPreview: onChange,
+    onPick: onSettled,
+    onPaletteChange,
+  });
 
   const label = document.createElement("span");
   label.className = "name";
@@ -74,8 +82,10 @@ function renderColor(
 /** The whole color block of a rule: fill and text, grouped and captioned as one. */
 function renderColors(
   rule: ColorRule,
+  palette: SavedColor[],
   onPatch: (patch: Partial<ColorRule>) => void,
   onPatchSettled: (patch: Partial<ColorRule>) => void,
+  onPaletteChange: (next: SavedColor[]) => void,
 ): HTMLElement {
   const group = document.createElement("div");
   group.className = "colors-group";
@@ -90,15 +100,19 @@ function renderColors(
       "fill",
       fillIcon(),
       rule.background,
+      palette,
       (next) => onPatch({ background: next }),
       (next) => onPatchSettled({ background: next }),
+      onPaletteChange,
     ),
     renderColor(
       "text",
       textIcon(),
       rule.text,
+      palette,
       (next) => onPatch({ text: next }),
       (next) => onPatchSettled({ text: next }),
+      onPaletteChange,
     ),
   );
   return group;
@@ -130,6 +144,10 @@ export function renderRulesSection(options: {
   states?: Map<string, RuleState>;
   /** Whether the whole section is open; owned by the caller, like the favicon section's. */
   expanded: boolean;
+  /** Colors the user kept, shared by every field on both surfaces. */
+  palette: SavedColor[];
+  /** The palette itself changed. Never re-renders: the popover is open while it fires. */
+  onPaletteChange(next: SavedColor[]): void;
   onToggleSection(expanded: boolean): void;
   expandedId: string | null;
   onExpand(ruleId: string | null): void;
@@ -149,7 +167,7 @@ export function renderRulesSection(options: {
   };
   onAdd(): void;
 }): HTMLElement {
-  const { profile, states, expanded, onToggleSection, expandedId, onExpand } = options;
+  const { profile, states, expanded, palette, onPaletteChange, onToggleSection, expandedId, onExpand } = options;
   const { onPatch, onPatchSettled, onRemove, picker, onAdd } = options;
 
   const body = document.createElement("div");
@@ -257,8 +275,10 @@ export function renderRulesSection(options: {
     editor.append(
       renderColors(
         rule,
+        palette,
         (patch) => onPatch(rule.id, patch),
         (patch) => onPatchSettled(rule.id, patch),
+        onPaletteChange,
       ),
     );
     open.append(editor);

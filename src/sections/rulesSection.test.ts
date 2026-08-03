@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { createProfile, createRule, type Profile } from "../core/profile";
+import { saveColor } from "../core/palette";
 import { renderRulesSection } from "./rulesSection";
 
 function profileWithRules(...rules: ReturnType<typeof createRule>[]): Profile {
@@ -12,6 +13,8 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
     profile: profileWithRules(),
     states: new Map(),
     expanded: true,
+    palette: [],
+    onPaletteChange: vi.fn(),
     onToggleSection: vi.fn(),
     expandedId: null,
     onExpand: vi.fn(),
@@ -326,6 +329,36 @@ describe("renderRulesSection", () => {
       // of the two fields carries the "unset" look.
       expect(section.querySelectorAll(".color.unset")).toHaveLength(1);
       expect(section.querySelectorAll(".color")[0].className).toBe("color");
+    });
+
+    it("gives each of a rule's colors the palette, and settles only when the popover closes", () => {
+      const profile = { ...createProfile("prod"), rules: [{ id: "r1", selector: ".x", background: "#ff0000", text: null }] };
+      const onPatch = vi.fn();
+      const onPatchSettled = vi.fn();
+      const wrap = renderRulesSection({
+        profile,
+        expanded: true,
+        palette: saveColor([], "#00ff00", "qa"),
+        onPaletteChange: vi.fn(),
+        onToggleSection: vi.fn(),
+        expandedId: "r1",
+        onExpand: vi.fn(),
+        onPatch,
+        onPatchSettled,
+        onRemove: vi.fn(),
+        onAdd: vi.fn(),
+      });
+      document.body.replaceChildren(wrap);
+
+      expect(wrap.querySelectorAll(".color .color-field")).toHaveLength(2);
+
+      wrap.querySelector<HTMLButtonElement>(".color .swatch-button")!.click();
+      wrap.querySelector<HTMLButtonElement>(".palette-grid.saved button")!.click();
+      expect(onPatch).toHaveBeenCalledWith("r1", { background: "#00ff00" });
+      expect(onPatchSettled).not.toHaveBeenCalled();
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(onPatchSettled).toHaveBeenCalledWith("r1", { background: "#00ff00" });
     });
   });
 });

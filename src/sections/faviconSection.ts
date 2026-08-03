@@ -1,6 +1,8 @@
 import { buildFaviconDataUrl } from "../core/favicon";
+import type { SavedColor } from "../core/palette";
 import type { FaviconMode, Profile } from "../core/profile";
-import { colorInput, labelled, textInput } from "../shared/controls";
+import { colorField } from "../shared/colorField";
+import { labelled, textInput } from "../shared/controls";
 import { disclosure } from "../shared/disclosure";
 
 const MODES: Array<{ mode: FaviconMode; label: string }> = [
@@ -62,13 +64,17 @@ export function renderFaviconSection(options: {
    */
   icon?: string;
   expanded: boolean;
+  /** Colors the user kept, shared by every field on both surfaces. */
+  palette: SavedColor[];
+  /** The palette itself changed. Never re-renders: the popover is open while it fires. */
+  onPaletteChange(next: SavedColor[]): void;
   onToggle(expanded: boolean): void;
   /** Fires on every keystroke/drag (input): writes the patch without forcing a re-render. */
   onPatch(patch: Partial<Profile>): void;
   /** Fires once an edit settles (change, or a button click): writes and re-renders. */
   onPatchSettled(patch: Partial<Profile>): void;
 }): HTMLElement {
-  const { profile, icon, expanded, onToggle, onPatch, onPatchSettled } = options;
+  const { profile, icon, expanded, palette, onPaletteChange, onToggle, onPatch, onPatchSettled } = options;
   const siteIcon = icon || UNKNOWN_ICON;
 
   const body = document.createElement("div");
@@ -92,9 +98,14 @@ export function renderFaviconSection(options: {
   // changes nothing visible is worse than no picker: it invites the user to conclude
   // the feature is broken.
   if (profile.faviconMode !== "original") {
-    const color = colorInput(profile.faviconColor);
-    color.addEventListener("input", () => onPatch({ faviconColor: color.value }));
-    color.addEventListener("change", () => onPatchSettled({ faviconColor: color.value }));
+    const color = colorField({
+      value: profile.faviconColor,
+      ariaLabel: profile.faviconMode === "initials" ? "Background color" : "Tint color",
+      palette,
+      onPreview: (next) => onPatch({ faviconColor: next }),
+      onPick: (next) => onPatchSettled({ faviconColor: next }),
+      onPaletteChange,
+    });
     body.append(labelled(profile.faviconMode === "initials" ? "Background" : "Tint", color));
   }
 
