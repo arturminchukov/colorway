@@ -126,4 +126,40 @@ describe("colorField", () => {
     expect(root.querySelector(".palette-popover")).not.toBeNull();
     expect(swatch(root).style.background).toBe("rgb(0, 255, 0)");
   });
+
+  it("ignores an outside focusin only while the native picker is genuinely open", () => {
+    const { root } = mount();
+    swatch(root).click();
+    root.querySelector<HTMLButtonElement>(".palette-custom")!.click();
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+
+    // The native dialog is up: focus landing elsewhere (as it does while that dialog is
+    // open) must not be read as "the user clicked away from the palette".
+    outside.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    expect(root.querySelector(".palette-popover")).not.toBeNull();
+
+    // The native dialog has since settled, but the palette is still open (settling it
+    // doesn't auto-close a still-open palette). The guard must not stay latched on.
+    const native = root.querySelector<HTMLInputElement>("input[type='color']")!;
+    native.dispatchEvent(new Event("change", { bubbles: true }));
+
+    outside.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    expect(root.querySelector(".palette-popover")).toBeNull();
+  });
+
+  it("stops listening once the popover has closed", () => {
+    const { root, onPick } = mount();
+    swatch(root).click();
+    root.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(onPick).toHaveBeenCalledTimes(1);
+
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(root.querySelector(".palette-popover")).toBeNull();
+  });
 });

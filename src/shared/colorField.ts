@@ -119,11 +119,20 @@ export function colorField(options: {
   function close(): void {
     if (!open) return;
     document.removeEventListener("pointerdown", onOutside, true);
-    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("keydown", onKey);
     document.removeEventListener("focusin", onFocusIn, true);
     open.element.remove();
     open = null;
     closeOpenPalette = null;
+    nativeOpen = false;
+    // A re-render elsewhere in the document (e.g. another surface's storage.onChanged)
+    // detached this field while its palette was open. There is no live swatch to return
+    // focus to and no caller left to hand a commit to — clean up quietly, without
+    // firing onPick from a stale closure against a profile snapshot that has moved on.
+    if (!root.isConnected) {
+      moved = false;
+      return;
+    }
     swatch.setAttribute("aria-expanded", "false");
     swatch.focus();
     if (moved && current !== null) options.onPick(current);
@@ -133,6 +142,7 @@ export function colorField(options: {
   function openPalette(): void {
     closeOpenPalette?.();
     moved = false;
+    nativeOpen = false;
     const popover = palettePopover({
       value: current,
       palette,
@@ -152,7 +162,7 @@ export function colorField(options: {
     swatch.setAttribute("aria-expanded", "true");
     closeOpenPalette = close;
     document.addEventListener("pointerdown", onOutside, true);
-    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("keydown", onKey);
     document.addEventListener("focusin", onFocusIn, true);
   }
 
