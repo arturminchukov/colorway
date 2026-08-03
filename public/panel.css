@@ -1,41 +1,7 @@
-:root {
-  --bg: #ffffff;
-  --fg: #16181d;
-  --muted: #6b7280;
-  --line: #eceef2;
-  --field: #ffffff;
-  --field-line: #dfe3e9;
-  --raised: #f2f4f7;
-  --accent: #2f81f7;
-  --danger: #dc2626;
-  --warn: #d97706;
-  --ok: #16a34a;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181d;
-    --fg: #e9edf5;
-    --muted: #9aa4b2;
-    --line: #262c36;
-    --field: #0e1116;
-    --field-line: #2b323d;
-    --raised: #1f242c;
-  }
-}
-
-* { box-sizing: border-box; }
-
-/* One spacing scale for the whole surface: the panel used to mix 7/8/9/11/12/14px
-   almost at random, which is what made some rows look glued together. */
-:root {
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --radius: 8px;
-}
+/* The panel window itself: its chrome, its tab-strip preview and its footer. The
+   sections it shows live in sections.css, shared with the options page; the palette
+   and spacing scale live in tokens.css. Both are linked before this file, so anything
+   here wins where the panel genuinely differs. */
 
 body {
   margin: 0;
@@ -46,77 +12,10 @@ body {
 
 h1 { font: 600 13px/1.3 system-ui; margin: 0; }
 
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
-
-/* Must outrank every `display` an author rule sets below — the favicon block is
-   hidden by the `hidden` attribute, and the UA stylesheet's own [hidden] rule loses
-   to any class that sets a display of its own (.section does). Without this the
-   block simply never collapses again. */
-[hidden] { display: none !important; }
-
-.section { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); display: grid; gap: var(--space-3); }
 .section:first-of-type { border-top: 0; }
-.section > p { margin: 0; }
 
-.title {
-  font: 600 10px/1 system-ui;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--muted);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.row { display: flex; align-items: center; gap: var(--space-3); }
-.grow { flex: 1; min-width: 0; }
-.muted { color: var(--muted); font-size: 11.5px; }
-.error { color: var(--danger); font-size: 11.5px; }
-.mono {
-  font: 500 11.5px/1.3 ui-monospace, SFMono-Regular, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Caption, control, and whatever the row adds after it (a clear button, a pick
-   button). A fixed first column is what keeps the fields of a form lined up instead
-   of each row starting wherever its own caption happens to end. */
-label {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-input[type="text"] {
-  min-width: 0;
-  background: var(--field);
-  color: var(--fg);
-  border: 1px solid var(--field-line);
-  border-radius: 7px;
-  padding: 6px 9px;
-  font: inherit;
-  font-size: 12px;
-}
-input[type="text"]:focus { border-color: var(--accent); outline: none; }
-
-input[type="color"] {
-  width: 30px;
-  height: 26px;
-  justify-self: start;
-  padding: 0;
-  border: 1px solid var(--field-line);
-  border-radius: 7px;
-  background: none;
-  cursor: pointer;
-}
-
-/* A color the rule does not set yet: live, but visibly not in play until touched. */
-.color.unset input[type="color"] { border-style: dashed; opacity: .65; }
-
+/* The panel's own buttons — "Set up this site" and "All settings →". Everything
+   inside a section is styled by sections.css instead. */
 button {
   font: 600 12.5px/1 system-ui;
   padding: 9px 12px;
@@ -125,36 +24,19 @@ button {
   background: var(--raised);
   color: var(--fg);
   cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, filter .12s ease;
 }
 button:hover { filter: brightness(0.97); }
+button:active { transform: translateY(1px); }
 
 button.primary { background: var(--accent); color: #fff; width: 100%; }
+button.primary:hover { filter: brightness(1.06); }
 button.link { background: none; color: var(--muted); padding: 0; font-weight: 400; font-size: 11.5px; }
-button.icon { background: none; color: var(--muted); padding: 0 var(--space-1); font-size: 15px; line-height: 1; }
-button.icon:hover { color: var(--fg); }
-button.pick { padding: 6px 10px; font-size: 11.5px; white-space: nowrap; }
+button.link:hover { color: var(--fg); text-decoration: underline; }
 
-/* Waiting for the user to click something on the page. Takes the row under the
-   selector field so the sentence has room to be a sentence. */
-.waiting {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--muted);
-  font-size: 11.5px;
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
 }
-.spinner {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  border: 2px solid var(--field-line);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
 
 /* tab preview */
 .preview { background: var(--raised); padding: var(--space-3) var(--space-3) 0; }
@@ -170,103 +52,10 @@ button.pick { padding: 6px 10px; font-size: 11.5px; white-space: nowrap; }
 .preview img { width: 15px; height: 15px; flex: 0 0 auto; }
 .preview .swatch { width: 15px; height: 15px; flex: 0 0 auto; }
 
-/* The site's own icon used as a mask over the chosen color: what shows is the icon's
-   shape filled with that color, which is what the content script's canvas tint does
-   to the real favicon. --icon is set inline, per icon, by renderTabPreview. */
-.tinted {
-  -webkit-mask-image: var(--icon);
-  mask-image: var(--icon);
-  -webkit-mask-size: contain;
-  mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  border-radius: 0;
-}
+/* .tinted itself lives in sections.css: the favicon section's mode previews use the
+   same silhouette trick as this strip does. */
 .preview .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview .prefix { font-weight: 700; }
-
-/* disclosure row */
-.disclosure {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--line);
-  font-size: 12.5px;
-  cursor: pointer;
-  background: none;
-  color: var(--fg);
-  width: 100%;
-  text-align: left;
-  font-weight: 500;
-  border-radius: 0;
-}
-/* Open or closed has to be visible without reading the row's contents: the caret is
-   the one part of a disclosure people look for. */
-.disclosure::before {
-  content: "";
-  width: 0;
-  height: 0;
-  flex: 0 0 auto;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  opacity: .55;
-  transition: transform .15s ease;
-}
-.disclosure[aria-expanded="true"]::before { transform: rotate(90deg); }
-.disclosure[aria-expanded="true"] { background: var(--raised); }
-.disclosure .summary { margin-left: auto; color: var(--muted); font-size: 11.5px; display: flex; align-items: center; gap: var(--space-2); }
-.chip { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--field-line); flex: 0 0 auto; }
-
-/* segmented control */
-.modes { display: flex; background: var(--raised); border-radius: 9px; padding: 3px; gap: 3px; }
-.modes button {
-  flex: 1;
-  display: grid;
-  justify-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) 0;
-  border-radius: 7px;
-  background: none;
-  color: var(--muted);
-  font: 400 10.5px/1 system-ui;
-}
-.modes button[aria-pressed="true"] { background: var(--bg); color: var(--fg); font-weight: 600; }
-.modes img, .modes .swatch { width: 18px; height: 18px; }
-.swatch { border-radius: 4px; display: grid; place-items: center; font: 700 8px/1 system-ui; color: #fff; }
-
-/* rules */
-.rule { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--line); }
-.rule:first-of-type { border-top: 0; }
-.rule .colors { display: flex; gap: 3px; flex: 0 0 auto; }
-.rule .colors i { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--field-line); display: block; }
-.dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
-.dot.matched { background: var(--ok); }
-.dot.not-found { background: var(--warn); }
-.dot.unpainted { background: var(--danger); }
-.dot.unknown { background: var(--muted); }
-.editor {
-  padding: var(--space-3);
-  margin-bottom: var(--space-2);
-  display: grid;
-  gap: var(--space-3);
-  background: var(--raised);
-  border-radius: var(--radius);
-}
-.editor .row { align-items: start; gap: var(--space-4); }
-.editor .row > .color { flex: 1; grid-template-columns: 32px minmax(0, auto) auto; }
-.new { border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2); margin: var(--space-2) 0; }
-.badge {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 4px;
-  padding: 2px 5px;
-  font: 700 8px/1 system-ui;
-  letter-spacing: .04em;
-}
 
 .footer {
   padding: var(--space-3) var(--space-4);

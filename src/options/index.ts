@@ -1,20 +1,13 @@
 import { patternsToRevoke } from "../core/permissions";
-import { createProfile, type Profile, type Settings } from "../core/profile";
+import { createProfile, createRule, type Profile, type Settings } from "../core/profile";
+import { patchRule, withoutRule } from "../core/ruleEdits";
+import { renderFaviconSection } from "../sections/faviconSection";
+import { renderRulesSection } from "../sections/rulesSection";
 import { browser, settingsRepo } from "../shared/browser";
-import { checkbox, colorInput, labelled, textInput } from "../shared/controls";
+import { checkbox, labelled, textInput } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const app = document.getElementById("app")!;
-
-const TEXT_FIELDS: Array<{ key: keyof Profile; label: string }> = [
-  { key: "name", label: "Profile name" },
-  { key: "titlePrefix", label: "Tab prefix" },
-  { key: "faviconLetters", label: "Favicon letters (1–2)" },
-];
-
-const COLOR_FIELDS: Array<{ key: keyof Profile; label: string }> = [
-  { key: "faviconColor", label: "Favicon color" },
-];
 
 let settings: Settings = { version: 3, profiles: [] };
 
@@ -100,37 +93,118 @@ function renderCard(profile: Profile): HTMLElement {
   card.addEventListener("input", markDirty);
   card.addEventListener("change", markDirty);
 
+  // What this profile is and whether it is on, on one row — the same header the panel
+  // window puts above its own sections, where the site's host takes the place of the
+  // name. The toggle carries its label as an aria-label rather than visible text: it
+  // sits at the end of the row exactly as it does in the window, where there is no
+  // room for a caption either.
+  const name = textInput(profile.name);
   const enabled = checkbox(profile.enabled);
+  enabled.setAttribute("aria-label", "Profile enabled");
+  enabled.title = "Profile enabled";
 
   const header = document.createElement("div");
-  header.className = "row";
-  header.append(labelled("Enabled", enabled));
+  header.className = "row identity";
+  const nameField = labelled("Profile name", name);
+  nameField.classList.add("grow");
+  header.append(nameField, enabled);
   card.append(header);
 
-  const inputs = new Map<keyof Profile, HTMLInputElement>();
-  for (const field of TEXT_FIELDS) {
-    const input = textInput(String(profile[field.key]));
-    inputs.set(field.key, input);
-    card.append(labelled(field.label, input));
-  }
-  for (const field of COLOR_FIELDS) {
-    const input = colorInput(String(profile[field.key]));
-    inputs.set(field.key, input);
-    card.append(labelled(field.label, input));
+  // What the shared sections edit, held here until Save: this page saves explicitly,
+  // so a section's patch changes the card's own copy of the profile rather than storage.
+  let draft: Profile = profile;
+
+  // The fields this card has actually edited. Everything else is taken from the
+  // freshest stored profile at save time (see the click handler below), so a rule
+  // added from the panel while this card sat on screen survives the save of a card
+  // that never touched rules.
+  const touched = new Set<keyof Profile>();
+
+  let faviconExpanded = false;
+  let rulesExpanded = true;
+  let expandedRuleId: string | null = null;
+
+  const sections = document.createElement("div");
+  card.append(sections);
+
+  /**
+   * Rebuilds only the sections, never the whole card: the pattern field, the name and
+   * the status line outlive this, so nothing the user is typing into elsewhere is torn
+   * down when a section redraws.
+   */
+  function renderSections(): void {
+    sections.replaceChildren(
+      renderFaviconSection({
+        profile: draft,
+        expanded: faviconExpanded,
+        onToggle: (next) => {
+          faviconExpanded = next;
+          renderSections();
+        },
+        onPatch: (patch) => applyPatch(patch, false),
+        onPatchSettled: (patch) => applyPatch(patch, true),
+      }),
+      renderRulesSection({
+        profile: draft,
+        // No `states` and no `picker`: this page has no tab to ask about a rule, and
+        // no page to pick an element from — selectors are typed here instead.
+        expanded: rulesExpanded,
+        onToggleSection: (next) => {
+          rulesExpanded = next;
+          renderSections();
+        },
+        expandedId: expandedRuleId,
+        onExpand: (ruleId) => {
+          expandedRuleId = ruleId;
+          renderSections();
+        },
+        onPatch: (ruleId, patch) => applyPatch({ rules: patchRule(draft, ruleId, patch).rules }, false),
+        onPatchSettled: (ruleId, patch) => applyPatch({ rules: patchRule(draft, ruleId, patch).rules }, true),
+        onRemove: (ruleId) => {
+          if (expandedRuleId === ruleId) expandedRuleId = null;
+          applyPatch({ rules: withoutRule(draft, ruleId).rules }, true);
+        },
+        onAdd: () => {
+          const rule = createRule("");
+          expandedRuleId = rule.id;
+          applyPatch({ rules: [...draft.rules, rule] }, true);
+        },
+      }),
+    );
   }
 
+  /**
+   * `settled` mirrors the panel's commit/commitAndRender split: a live color drag only
+   * records the value, while an edit that has settled (a change event, a button click)
+   * also redraws the sections so what they show catches up.
+   */
+  function applyPatch(patch: Partial<Profile>, settled: boolean): void {
+    draft = { ...draft, ...patch };
+    for (const key of Object.keys(patch) as Array<keyof Profile>) touched.add(key);
+    // Section edits fire no bubbling input/change of their own when they come from a
+    // button (a mode, a delete, "+ Add rule"), so the card marks itself dirty here
+    // rather than relying on the listeners above.
+    markDirty();
+    if (settled) renderSections();
+  }
+
+  renderSections();
+
+  // The one setting the window cannot offer: which addresses this profile applies to.
+  // Laid out like every other field — caption column, control — with the format in a
+  // note under it rather than in a caption too long for that column.
   const patterns = document.createElement("textarea");
   patterns.value = profile.patterns.join("\n");
   patterns.placeholder = "*://vm-prod.corp/*";
-  card.append(labelled("URL patterns, one per line", patterns));
-
-  const rulesNote = document.createElement("p");
-  rulesNote.className = "muted";
-  rulesNote.textContent =
-    profile.rules.length === 0
-      ? "No rules. Click the extension's toolbar icon on the site to add them."
-      : `${profile.rules.length} rule(s). Edit them in the window opened from the toolbar icon on that site.`;
-  card.append(rulesNote);
+  const patternsField = labelled("URL patterns", patterns);
+  // A field taller than one line: the caption belongs at the top of it, not floating
+  // halfway down its side.
+  patternsField.classList.add("tall");
+  const patternsHint = document.createElement("span");
+  patternsHint.className = "hint";
+  patternsHint.textContent = "One pattern per line.";
+  patternsField.append(patternsHint);
+  card.append(patternsField);
 
   const status = document.createElement("p");
   status.className = "muted";
@@ -192,14 +266,18 @@ function renderCard(profile: Profile): HTMLElement {
           return;
         }
 
+        // Only the fields this card actually edited are taken from its draft; the rest
+        // come from `previous`, which is why an edit made elsewhere to a field this
+        // card never touched is not written back over.
+        const edited = Object.fromEntries([...touched].map((key) => [key, draft[key]])) as Partial<Profile>;
+
         const next: Profile = {
           ...previous,
+          ...edited,
+          name: name.value,
           enabled: enabled.checked,
           patterns: nextPatterns,
         };
-        for (const [key, input] of inputs) {
-          (next as unknown as Record<string, string>)[key] = input.value;
-        }
 
         const nextSettings: Settings = {
           ...settings,

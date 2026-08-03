@@ -1,5 +1,7 @@
+import { buildFaviconDataUrl } from "../core/favicon";
 import type { FaviconMode, Profile } from "../core/profile";
 import { colorInput, labelled, textInput } from "../shared/controls";
+import { disclosure } from "../shared/disclosure";
 
 const MODES: Array<{ mode: FaviconMode; label: string }> = [
   { mode: "original", label: "Original" },
@@ -13,18 +15,52 @@ const MODE_SUMMARY: Record<FaviconMode, string> = {
   initials: "Initials",
 };
 
+/** Stands in for a site icon nobody can show here: the options page has no tab. */
+const UNKNOWN_ICON = buildFaviconDataUrl("?", "#9ca3af") ?? "";
+
+/**
+ * What each mode does to this site's icon, shown with the icon itself rather than with
+ * a colored square: the choice is about the site's own favicon, and three squares said
+ * nothing about which one leaves it alone.
+ *
+ * "Tinted" uses the icon as a mask over the chosen color — the icon's shape filled with
+ * that color — which is what the content script's canvas tint produces on the real
+ * favicon; see renderTabPreview, which stands in for the same thing.
+ */
+function modePreview(mode: FaviconMode, profile: Profile, icon: string): HTMLElement {
+  if (mode === "original") {
+    const image = document.createElement("img");
+    image.src = icon;
+    image.alt = "";
+    return image;
+  }
+
+  const swatch = document.createElement("span");
+  swatch.className = mode === "tinted" ? "swatch tinted" : "swatch";
+  swatch.style.background = profile.faviconColor;
+  if (mode === "tinted") {
+    swatch.style.setProperty("--icon", `url("${icon}")`);
+  } else {
+    swatch.textContent = profile.faviconLetters.slice(0, 2).toUpperCase();
+  }
+  return swatch;
+}
+
 /**
  * Collapsed by default: this is set once per site, while rules are edited often.
  * The collapsed row still states the outcome, so opening it is never needed just to
  * find out what is configured.
  *
  * The open/closed state is owned by the caller (see `expanded`/`onToggle`), not kept
- * on the DOM element: the panel rebuilds this section on every settled edit
- * (commitAndRender(), same as the rules section's expandedId/onExpand), and state
- * living only in the DOM would snap shut on every one of those rebuilds.
+ * on the DOM element — see disclosure() for why.
  */
 export function renderFaviconSection(options: {
   profile: Profile;
+  /**
+   * The site's own favicon, for the mode previews. Absent where nobody can know it —
+   * the options page has no tab to read it from — and stood in for by a neutral "?".
+   */
+  icon?: string;
   expanded: boolean;
   onToggle(expanded: boolean): void;
   /** Fires on every keystroke/drag (input): writes the patch without forcing a re-render. */
@@ -32,27 +68,11 @@ export function renderFaviconSection(options: {
   /** Fires once an edit settles (change, or a button click): writes and re-renders. */
   onPatchSettled(patch: Partial<Profile>): void;
 }): HTMLElement {
-  const { profile, expanded, onToggle, onPatch, onPatchSettled } = options;
-
-  const wrap = document.createElement("div");
-
-  const toggle = document.createElement("button");
-  toggle.className = "disclosure";
-  toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.append("Change favicon");
-
-  const summary = document.createElement("span");
-  summary.className = "summary";
-  summary.hidden = expanded;
-  const chip = document.createElement("span");
-  chip.className = "chip";
-  chip.style.background = profile.faviconColor;
-  summary.append(chip, `${MODE_SUMMARY[profile.faviconMode]}${profile.titlePrefix ? ` · ${profile.titlePrefix}` : ""}`);
-  toggle.append(summary);
+  const { profile, icon, expanded, onToggle, onPatch, onPatchSettled } = options;
+  const siteIcon = icon || UNKNOWN_ICON;
 
   const body = document.createElement("div");
   body.className = "section";
-  body.hidden = !expanded;
 
   const modes = document.createElement("div");
   modes.className = "modes";
@@ -60,11 +80,7 @@ export function renderFaviconSection(options: {
     const button = document.createElement("button");
     button.setAttribute("aria-pressed", String(entry.mode === profile.faviconMode));
 
-    const preview = document.createElement("span");
-    preview.className = "swatch";
-    preview.style.background = entry.mode === "original" ? "var(--muted)" : profile.faviconColor;
-    preview.textContent = entry.mode === "initials" ? profile.faviconLetters.slice(0, 2).toUpperCase() : "";
-    button.append(preview, entry.label);
+    button.append(modePreview(entry.mode, profile, siteIcon), entry.label);
 
     button.addEventListener("click", () => onPatchSettled({ faviconMode: entry.mode }));
     modes.append(button);
@@ -98,8 +114,16 @@ export function renderFaviconSection(options: {
   prefix.addEventListener("change", () => onPatchSettled({ titlePrefix: prefix.value }));
   body.append(labelled("Tab prefix", prefix));
 
-  toggle.addEventListener("click", () => onToggle(!expanded));
+  // The same preview the chosen mode's button carries, so the collapsed row shows what
+  // the tab will actually look like rather than a color the mode may not even use.
+  const preview = modePreview(profile.faviconMode, profile, siteIcon);
+  preview.classList.add("chip");
 
-  wrap.append(toggle, body);
-  return wrap;
+  return disclosure({
+    title: "Favicon",
+    summary: [preview, `${MODE_SUMMARY[profile.faviconMode]}${profile.titlePrefix ? ` · ${profile.titlePrefix}` : ""}`],
+    expanded,
+    onToggle,
+    body,
+  });
 }

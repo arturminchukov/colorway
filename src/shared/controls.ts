@@ -1,6 +1,12 @@
-/** Shared by the panel window and the options page, so the two cannot drift apart. */
+/**
+ * Caption and control on one row, the same row on both surfaces: the class is what
+ * carries the layout (see `.field` in sections.css), so a field of the options page
+ * and a field of the panel window cannot drift apart by living under different
+ * element-level rules.
+ */
 export function labelled(text: string, control: HTMLElement): HTMLLabelElement {
   const label = document.createElement("label");
+  label.className = "field";
   label.append(text, control);
   return label;
 }

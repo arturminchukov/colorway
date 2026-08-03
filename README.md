@@ -43,7 +43,8 @@ set a site up from the window, start the picker, or save a profile on the option
 2. On a site the extension has never seen, the window offers **Set up this site**: pressing it asks
    for access to that domain and gives the site its first profile, after which the favicon block and
    the rules list appear. A site that already has a profile skips straight to them.
-3. Press **+ Add rule** and, if you have not granted access yet, allow it.
+3. Press **+ Add rule**, then the crosshair next to the new rule's selector; if you have not
+   granted access yet, allow it.
 4. Hover: the element under the cursor is outlined with its tag and size. `Esc` at this point leaves
    the picker without adding anything.
 5. Click it. The picker's only job is reporting the selector to the window and stopping — it has no
@@ -58,17 +59,31 @@ set a site up from the window, start the picker, or save a profile on the option
    set, or an unusable selector), or unknown. Unknown means the page hasn't answered yet — it hasn't
    loaded the content script, or the extension has no access to it — and is never counted as broken;
    the footer under the rule list says so explicitly when nothing is known yet.
-8. **Change favicon** holds one setting per site: the favicon treatment, its color, the letters
-   (in `Initials` mode) and the tab prefix.
+8. The window has two collapsible sections. **Favicon** holds one setting per site: the favicon
+   treatment, its color, the letters (in `Initials` mode) and the tab prefix; it starts closed and
+   its header states what is configured. Each mode previews on the site's own icon rather than on a
+   colored square — `Original` shows the icon, `Tinted` its silhouette in the chosen color,
+   `Initials` the letters that replace it. **Content rules** holds the rule list and starts open.
+   An open rule is one bordered box: its row, its selector (with the crosshair that starts the
+   picker) and its colors, so what the fields belong to is visible rather than inferred. The two
+   colors are grouped: `fill` and `text`, each with its swatch and a reset button that puts the
+   property back the way the site had it.
 
 `Original` leaves the site icon untouched. `Tinted` keeps its shape and refills it with your color,
 so the site stays recognisable. `Initials` replaces it with one or two letters on a color. When an
 icon cannot be recolored — it comes from another domain without CORS, for instance — the extension
 falls back to letters and the window explains why.
 
-The options page lists every profile: its name, enabled toggle, URL patterns, tab prefix, favicon
-letters and color, and how many rules it has. All of that is editable there except the rules
-themselves — rules are only added and edited in the window, on the site they belong to.
+The options page shows every profile exactly as the window does: the same header row (the profile's
+name and its on/off toggle, where the window shows the site's host), the same **Favicon** and
+**Content rules** sections, and the same fields — every caption, control and button on both surfaces
+comes from the same code and the same stylesheet, so the only difference is the width of the page.
+Below the sections it adds the one setting the window cannot offer: the URL patterns. Two things are
+missing there, and only because the page has no site behind it: there is no element picker (type the
+selector by hand instead) and no status dots, since no tab can answer for a rule. The page saves
+explicitly, on **Save**, because granting access to the URL patterns has to happen in the click
+itself; a card writes back only the fields you actually edited in it, so a rule added from the
+window meanwhile is not overwritten.
 
 ## Development
 
@@ -96,7 +111,13 @@ apply must not mutate the region the applier itself observes, or the page spins 
 8. Turning the profile off restores the site completely.
 9. A rule with a stale selector is marked as not painting; a rule the page hasn't answered for yet
    is marked unknown, not broken.
-10. The options page lists profiles, patterns and rule counts, and no longer edits rules.
+10. Both sections collapse and stay that way while you edit the other one; a picked rule reopens
+    **Content rules** if it was closed.
+11. Every clickable thing reacts on hover: rule rows, the delete button, both section headers, the
+    mode buttons and the swatches.
+12. The options page shows the same header row, the same two sections and the same field layout as
+    the window, plus the URL patterns; editing a rule or a favicon mode there and pressing Save
+    writes exactly that, leaving fields the card never touched alone.
 
 Handy for checking: `https://play.victoriametrics.com/select/0/prometheus/vmui/` and any ordinary site.
 

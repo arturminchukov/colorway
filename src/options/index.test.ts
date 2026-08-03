@@ -136,34 +136,72 @@ describe("options: saving a card preserves its rules", () => {
   });
 });
 
-describe("options: rule count note replaces the editor", () => {
-  it("tells the user there are no rules yet and where to add them", async () => {
-    await loadModule(settingsWith(profile({ rules: [] })));
-    expect(cards()[0].textContent).toContain("No rules. Click the extension's toolbar icon on the site to add them.");
-  });
-
-  it("shows the rule count and points at the toolbar icon", async () => {
+describe("options: the card shows the panel's own sections", () => {
+  it("renders the favicon and content-rules sections, with the rules listed", async () => {
     const rules = [createRule(".a"), createRule(".b")];
     await loadModule(settingsWith(profile({ rules })));
-    expect(cards()[0].textContent).toContain(
-      "2 rule(s). Edit them in the window opened from the toolbar icon on that site.",
-    );
+    const card = cards()[0];
+
+    const titles = [...card.querySelectorAll(".disclosure")].map((toggle) => toggle.firstChild?.textContent);
+    expect(titles).toEqual(["Favicon", "Content rules"]);
+    expect([...card.querySelectorAll(".rule .link")].map((row) => row.textContent)).toEqual([".a", ".b"]);
   });
 
-  it("renders no per-rule editor inside the card", async () => {
-    const rule = createRule(".only-in-side-panel");
+  it("offers no element picker or status dots: there is no tab behind this page", async () => {
+    const rule = createRule(".a");
     await loadModule(settingsWith(profile({ rules: [rule] })));
     const card = cards()[0];
-    // The old rule editor nested another `.card` row per rule with a selector input
-    // carrying the rule's selector as its value. textContent never reflects an
-    // input's value at all (it only ever exposes text nodes), so asserting the
-    // selector isn't in textContent — as this test used to — passes whether or not
-    // that editor exists; checking the fields' actual values is what can fail.
-    expect(card.querySelectorAll(".card")).toHaveLength(0);
-    const fieldValues = [...card.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")].map(
-      (field) => field.value,
-    );
-    expect(fieldValues).not.toContain(rule.selector);
+    card.querySelector<HTMLButtonElement>(".rule .link")!.click();
+
+    expect(card.querySelector(".pick")).toBeNull();
+    expect(card.querySelectorAll(".dot")).toHaveLength(0);
+    // The selector is typed here instead, so the editor itself must be reachable.
+    expect(card.querySelector('.editor input[type="text"]')).not.toBeNull();
+  });
+
+  it("saves a rule edited in the card", async () => {
+    const rule = createRule(".before");
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+    const card = cards()[0];
+
+    card.querySelector<HTMLButtonElement>(".rule .link")!.click();
+    const selector = card.querySelector<HTMLInputElement>('.editor input[type="text"]')!;
+    selector.value = ".after";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+
+    buttonNamed(card, "Save").click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+    const saved = save.mock.calls[0][0] as Settings;
+    expect(saved.profiles[0].rules).toEqual([{ ...rule, selector: ".after" }]);
+  });
+
+  it("saves a rule deleted in the card", async () => {
+    const kept = createRule(".a");
+    const deleted = createRule(".b");
+    await loadModule(settingsWith(profile({ rules: [kept, deleted] })));
+    const card = cards()[0];
+
+    [...card.querySelectorAll<HTMLButtonElement>(".rule .remove")][1].click();
+    expect(card.querySelectorAll(".rule")).toHaveLength(1);
+
+    buttonNamed(card, "Save").click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect((save.mock.calls[0][0] as Settings).profiles[0].rules).toEqual([kept]);
+  });
+
+  it("saves a favicon mode picked in the card", async () => {
+    await loadModule(settingsWith(profile({ faviconMode: "tinted" })));
+    const card = cards()[0];
+
+    const initials = [...card.querySelectorAll<HTMLButtonElement>(".modes button")].find((button) =>
+      button.textContent?.includes("Initials"),
+    )!;
+    initials.click();
+
+    buttonNamed(card, "Save").click();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect((save.mock.calls[0][0] as Settings).profiles[0].faviconMode).toBe("initials");
   });
 });
 
@@ -178,8 +216,12 @@ describe("options: page text is in English", () => {
   it("labels card controls and buttons", async () => {
     await loadModule(settingsWith(profile()));
     const card = cards()[0];
-    expect(card.textContent).toContain("Enabled");
-    expect(card.textContent).toContain("URL patterns, one per line");
+    // The toggle sits at the end of the name row, captionless, exactly as it does in
+    // the panel window — so its label is an accessible name rather than visible text.
+    expect(card.querySelector('input[type="checkbox"]')?.getAttribute("aria-label")).toBe("Profile enabled");
+    expect(card.querySelector(".identity .field")?.textContent).toContain("Profile name");
+    expect(card.textContent).toContain("URL patterns");
+    expect(card.textContent).toContain("One pattern per line.");
     expect(buttonNamed(card, "Save")).toBeDefined();
     expect(buttonNamed(card, "Delete")).toBeDefined();
   });

@@ -13,6 +13,7 @@ describe("renderFaviconSection", () => {
       onPatchSettled: vi.fn(),
     });
     const toggle = wrap.querySelector(".disclosure")!;
+    expect(toggle.firstChild?.textContent).toBe("Favicon");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(wrap.querySelector(".section")?.hasAttribute("hidden")).toBe(true);
     expect(wrap.querySelector(".summary")?.hasAttribute("hidden")).toBe(false);
@@ -79,6 +80,61 @@ describe("renderFaviconSection", () => {
     });
     expect(second.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
     expect(first.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  describe("the mode previews", () => {
+    function modes(profile = createProfile("prod"), icon?: string): HTMLElement[] {
+      const wrap = renderFaviconSection({
+        profile,
+        icon,
+        expanded: true,
+        onToggle: vi.fn(),
+        onPatch: vi.fn(),
+        onPatchSettled: vi.fn(),
+      });
+      return [...wrap.querySelectorAll<HTMLElement>(".modes button")];
+    }
+
+    it("previews each mode on the site's own icon, not on a colored square", () => {
+      const [original, tinted, initials] = modes(createProfile("prod"), "https://example.com/favicon.ico");
+
+      // Left alone: the icon itself.
+      expect(original.querySelector<HTMLImageElement>("img")?.src).toBe("https://example.com/favicon.ico");
+
+      // The icon's silhouette filled with the chosen color — what the content script's
+      // canvas tint produces on the real favicon.
+      const silhouette = tinted.querySelector<HTMLElement>(".swatch.tinted")!;
+      expect(silhouette.style.getPropertyValue("--icon")).toBe('url("https://example.com/favicon.ico")');
+      expect(silhouette.style.background).toBe("rgb(63, 81, 181)");
+
+      // Replaced outright: no icon involved, so none is shown.
+      expect(initials.querySelector("img")).toBeNull();
+      expect(initials.querySelector(".swatch")?.textContent).toBe("PR");
+    });
+
+    it("stands in for an icon nobody can know, rather than showing a broken one", () => {
+      const [original, tinted] = modes();
+      // The options page has no tab to read a favicon from.
+      expect(original.querySelector<HTMLImageElement>("img")?.src).toContain("data:image/svg+xml");
+      expect(tinted.querySelector<HTMLElement>(".swatch.tinted")?.style.getPropertyValue("--icon")).toContain(
+        "data:image/svg+xml",
+      );
+    });
+
+    it("summarizes the collapsed section with the chosen mode's own preview", () => {
+      const wrap = renderFaviconSection({
+        profile: { ...createProfile("prod"), faviconMode: "original" },
+        icon: "https://example.com/favicon.ico",
+        expanded: false,
+        onToggle: vi.fn(),
+        onPatch: vi.fn(),
+        onPatchSettled: vi.fn(),
+      });
+      // "Original" uses no color at all, so a color chip there was a lie.
+      const chip = wrap.querySelector<HTMLImageElement>(".summary .chip")!;
+      expect(chip.tagName).toBe("IMG");
+      expect(chip.src).toBe("https://example.com/favicon.ico");
+    });
   });
 
   it("only shows the letters field in 'initials' mode", () => {

@@ -3,11 +3,11 @@ import type { PreviewMessage, RuleState, StatusResponse } from "../content/index
 import { currentProfileForUrl, pickProfile } from "../core/matcher";
 import { addRuleForUrl, createProfileForUrl, createRule, type Settings } from "../core/profile";
 import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
+import { renderFaviconSection } from "../sections/faviconSection";
+import { renderRulesSection } from "../sections/rulesSection";
 import { browser, settingsRepo } from "../shared/browser";
 import { checkbox } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
-import { renderFaviconSection } from "./faviconSection";
-import { renderRulesSection } from "./rulesSection";
 import { renderTabPreview } from "./tabPreview";
 
 const SAVE_DELAY_MS = 300;
@@ -29,6 +29,12 @@ let expandedRuleId: string | null = null;
 // those rebuilds, e.g. right after picking "Initials" hides the Letters field that
 // had just appeared.
 let faviconSectionExpanded = false;
+
+// Whether the rules section's disclosure is open, kept here for exactly the same
+// reason as faviconSectionExpanded above. Open to begin with, unlike the favicon
+// block: rules are what this window is opened to edit, while the favicon is set once
+// per site.
+let rulesSectionExpanded = true;
 
 // Set when starting the picker fails: permission refused, or the background could
 // not inject it. Purely local UI state, like expandedRuleId above. Scoped via
@@ -492,6 +498,9 @@ async function render(): Promise<void> {
     body.append(
       renderFaviconSection({
         profile,
+        // The tab's own icon, so each mode previews on the real favicon rather than on
+        // a placeholder. Undefined for a tab that reports none; the section stands in.
+        icon: tab.icon,
         expanded: faviconSectionExpanded,
         onToggle: (nextExpanded) => {
           faviconSectionExpanded = nextExpanded;
@@ -519,6 +528,11 @@ async function render(): Promise<void> {
       renderRulesSection({
         profile,
         states,
+        expanded: rulesSectionExpanded,
+        onToggleSection: (nextExpanded) => {
+          rulesSectionExpanded = nextExpanded;
+          void render();
+        },
         expandedId: expandedRuleId,
         onExpand: (ruleId) => {
           expandedRuleId = ruleId;
@@ -530,8 +544,10 @@ async function render(): Promise<void> {
           if (expandedRuleId === ruleId) expandedRuleId = null;
           commitAndRender(removeRule(settings, profile.id, ruleId), tab);
         },
-        onPick: (ruleId) => startPicking(tab.url!, tab.id, ruleId),
-        pickingRuleId: pickTargetRuleId,
+        picker: {
+          onPick: (ruleId) => startPicking(tab.url!, tab.id, ruleId),
+          pickingRuleId: pickTargetRuleId,
+        },
         // The rule appears at once, empty and expanded, instead of only after an
         // element has been picked: the user asked to add a rule, so a rule is what
         // they get, with "Select element" inside it as the next step. Until it has a
@@ -539,6 +555,10 @@ async function render(): Promise<void> {
         onAdd: () => {
           const rule = createRule("");
           expandedRuleId = rule.id;
+          // Adding is only reachable from inside the open section today, but a rule
+          // that lands in a collapsed list would be invisible the moment that stops
+          // being true.
+          rulesSectionExpanded = true;
           commitAndRender(updateProfile(settings, profile.id, { rules: [...profile.rules, rule] }), tab);
         },
       }),
@@ -668,6 +688,9 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   // profile the rule actually landed on.
   const profile = currentProfileForUrl(tabUrl, next.profiles);
   expandedRuleId = waiting ?? profile?.rules.at(-1)?.id ?? null;
+  // The window can have been reopened with the section collapsed while the pick was
+  // still running; the rule the user just aimed at must not land out of sight.
+  rulesSectionExpanded = true;
   // A successful pick supersedes a failure message left over from an earlier attempt,
   // but only the one raised for this same tab — see pickErrorTabId above.
   if (pickErrorTabId === tabId) pickError = null;

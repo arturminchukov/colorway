@@ -11,26 +11,52 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
   return {
     profile: profileWithRules(),
     states: new Map(),
+    expanded: true,
+    onToggleSection: vi.fn(),
     expandedId: null,
     onExpand: vi.fn(),
     onPatch: vi.fn(),
     onPatchSettled: vi.fn(),
     onRemove: vi.fn(),
-    onPick: vi.fn(),
-    pickingRuleId: null,
+    picker: { pickingRuleId: null, onPick: vi.fn() },
     onAdd: vi.fn(),
     ...overrides,
   };
 }
 
 describe("renderRulesSection", () => {
-  it("shows the empty-state message and rule count of 0 when there are no rules", () => {
+  it("shows the empty-state message and a rule count of 0 when there are no rules", () => {
     const section = renderRulesSection(baseOptions());
-    expect(section.querySelector(".title")?.textContent).toBe("Rules0");
+    expect(section.querySelector(".disclosure")?.textContent).toContain("Content rules");
+    expect(section.querySelector(".summary")?.textContent).toBe("0 rules");
     expect(section.querySelector("p.muted")?.textContent).toBe(
       "No rules yet. Add one by picking an element on the page.",
     );
     expect(section.querySelectorAll(".rule")).toHaveLength(0);
+  });
+
+  it("collapses through the caller's state, reporting the flip through onToggleSection", () => {
+    const collapsed = renderRulesSection(baseOptions({ expanded: false }));
+    expect(collapsed.querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("false");
+    expect(collapsed.querySelector(".section")?.hasAttribute("hidden")).toBe(true);
+    expect(collapsed.querySelector(".summary")?.hasAttribute("hidden")).toBe(false);
+
+    const onToggleSection = vi.fn();
+    const open = renderRulesSection(baseOptions({ expanded: true, onToggleSection }));
+    expect(open.querySelector(".section")?.hasAttribute("hidden")).toBe(false);
+    // Redundant while the list itself is on screen.
+    expect(open.querySelector(".summary")?.hasAttribute("hidden")).toBe(true);
+    open.querySelector<HTMLButtonElement>(".disclosure")!.click();
+    expect(onToggleSection).toHaveBeenCalledWith(false);
+  });
+
+  it("summarizes the rules' colors and count while collapsed", () => {
+    const first = { ...createRule(".a"), background: "#111111", text: "#222222" };
+    const second = createRule(".b");
+    const section = renderRulesSection(baseOptions({ expanded: false, profile: profileWithRules(first, second) }));
+    const summary = section.querySelector(".summary")!;
+    expect(summary.querySelectorAll(".chip")).toHaveLength(2);
+    expect(summary.textContent).toBe("2 rules");
   });
 
   it("lists one row per rule with the selector as its label", () => {
@@ -102,7 +128,7 @@ describe("renderRulesSection", () => {
     const rule = createRule(".a");
     const onRemove = vi.fn();
     const section = renderRulesSection(baseOptions({ profile: profileWithRules(rule), onRemove }));
-    section.querySelector<HTMLButtonElement>(".rule .icon")!.click();
+    section.querySelector<HTMLButtonElement>(".rule .remove")!.click();
     expect(onRemove).toHaveBeenCalledWith(rule.id);
   });
 
@@ -119,6 +145,37 @@ describe("renderRulesSection", () => {
     expect(section.querySelector(".editor")).toBeNull();
   });
 
+  describe("a surface with no tab behind it (the options page)", () => {
+    function withoutTab(overrides: Partial<Parameters<typeof renderRulesSection>[0]> = {}) {
+      const options = baseOptions(overrides);
+      // Deleted rather than passed as undefined, which is exactly how the options page
+      // calls this: it has neither a tab to ask nor a page to pick from.
+      delete (options as { states?: unknown }).states;
+      delete (options as { picker?: unknown }).picker;
+      return renderRulesSection(options as Parameters<typeof renderRulesSection>[0]);
+    }
+
+    it("shows no status dots at all, rather than a row of 'unknown' ones", () => {
+      const section = withoutTab({ profile: profileWithRules(createRule(".a"), createRule(".b")) });
+      expect(section.querySelectorAll(".dot")).toHaveLength(0);
+    });
+
+    it("offers no element picker and lets the selector be typed instead", () => {
+      const rule = createRule("");
+      const section = withoutTab({ profile: profileWithRules(rule), expandedId: rule.id });
+      expect(section.querySelector(".pick")).toBeNull();
+      expect(section.querySelector(".waiting")).toBeNull();
+      expect(section.querySelector<HTMLInputElement>('.editor input[type="text"]')).not.toBeNull();
+    });
+
+    it("adapts the empty state to a surface with nothing to pick from", () => {
+      const section = withoutTab();
+      expect(section.querySelector("p.muted")?.textContent).toBe(
+        "No rules yet. Add one and type the element's CSS selector.",
+      );
+    });
+  });
+
   describe("the expanded rule's editor", () => {
     function expandedSection(overrides: Partial<Parameters<typeof renderRulesSection>[0]> = {}) {
       const rule = createRule(".a");
@@ -130,12 +187,25 @@ describe("renderRulesSection", () => {
       return { rule, section, onPatch, onPatchSettled };
     }
 
-    it("marks the expanded row as new and shows the editor", () => {
+    it("puts the row and its editor inside one box, so what the fields belong to is visible", () => {
       const { section, rule } = expandedSection();
-      const row = section.querySelector(".rule")!;
-      expect(row.className).toBe("rule new");
-      expect(section.querySelector(".editor")).not.toBeNull();
+      const open = section.querySelector(".rule-open")!;
+      // Both inside the same box, and nothing else between them.
+      expect(open.querySelector(":scope > .rule")).not.toBeNull();
+      expect(open.querySelector(":scope > .editor")).not.toBeNull();
+      expect(section.querySelectorAll(".editor")).toHaveLength(1);
       expect(section.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe(rule.selector);
+    });
+
+    it("leaves a collapsed rule's row outside that box", () => {
+      const open = createRule(".a");
+      const closed = createRule(".b");
+      const section = renderRulesSection(
+        baseOptions({ profile: profileWithRules(open, closed), expandedId: open.id }),
+      );
+      const boxes = section.querySelectorAll(".rule-open");
+      expect(boxes).toHaveLength(1);
+      expect(boxes[0].querySelector(".rule .link")?.textContent).toBe(".a");
     });
 
     it("drives the selector field's 'input' through onPatch and 'change' through onPatchSettled", () => {
@@ -149,6 +219,19 @@ describe("renderRulesSection", () => {
 
       selector.dispatchEvent(new Event("change", { bubbles: true }));
       expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { selector: ".new-selector" });
+    });
+
+    it("groups the two colors, each with its own icon, name and reset", () => {
+      const { section } = expandedSection();
+      const group = section.querySelector(".colors-group")!;
+      expect(group.querySelector(".group-title")?.textContent).toBe("Colors");
+
+      const rows = group.querySelectorAll(".color");
+      expect(rows).toHaveLength(2);
+      expect([...rows].map((row) => row.querySelector(".name")?.textContent)).toEqual(["fill", "text"]);
+      // The icon is what the row is recognized by before its label is read.
+      expect([...rows].every((row) => row.querySelector("svg.glyph") !== null)).toBe(true);
+      expect([...rows].every((row) => row.querySelector(".reset") !== null)).toBe(true);
     });
 
     it("drives a color field's drag ('input') through onPatch and its settle ('change') through onPatchSettled", () => {
@@ -175,19 +258,23 @@ describe("renderRulesSection", () => {
       expect(section.querySelector(".color.unset")).not.toBeNull();
     });
 
-    it("offers a clear button only for a color that is set, and it unsets through onPatchSettled", () => {
+    it("keeps the reset button in place but inert until the color is actually set", () => {
       const unset = expandedSection();
-      expect(unset.section.querySelectorAll(".clear")).toHaveLength(0);
+      const resets = unset.section.querySelectorAll<HTMLButtonElement>(".reset");
+      // Always on screen, so the row's shape does not shift under the pointer.
+      expect(resets).toHaveLength(2);
+      expect(resets[0].disabled).toBe(true);
 
       const rule = { ...createRule(".a"), background: "#123456" };
       const onPatchSettled = vi.fn();
       const section = renderRulesSection(
         baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, onPatchSettled }),
       );
-      const clear = section.querySelectorAll<HTMLButtonElement>(".clear");
-      expect(clear).toHaveLength(1);
+      const [fillReset, textReset] = section.querySelectorAll<HTMLButtonElement>(".reset");
+      expect(fillReset.disabled).toBe(false);
+      expect(textReset.disabled).toBe(true);
 
-      clear[0].click();
+      fillReset.click();
       expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { background: null });
     });
 
@@ -195,7 +282,11 @@ describe("renderRulesSection", () => {
       const rule = createRule("");
       const onPick = vi.fn();
       const section = renderRulesSection(
-        baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, pickingRuleId: rule.id, onPick }),
+        baseOptions({
+          profile: profileWithRules(rule),
+          expandedId: rule.id,
+          picker: { pickingRuleId: rule.id, onPick },
+        }),
       );
       // The picker holds the page and the window is dimmed: pressing the button again
       // would do nothing, so it is replaced by what the user should do instead.
@@ -209,10 +300,20 @@ describe("renderRulesSection", () => {
       const rule = createRule("");
       const onPick = vi.fn();
       const section = renderRulesSection(
-        baseOptions({ profile: profileWithRules(rule), expandedId: rule.id, pickingRuleId: null, onPick }),
+        baseOptions({
+          profile: profileWithRules(rule),
+          expandedId: rule.id,
+          picker: { pickingRuleId: null, onPick },
+        }),
       );
       expect(section.querySelector(".waiting")).toBeNull();
-      section.querySelector<HTMLButtonElement>(".pick")!.click();
+      const pick = section.querySelector<HTMLButtonElement>(".pick")!;
+      // A crosshair, not a label: the words used to squeeze the selector field, and
+      // the button still has to say what it does to a screen reader.
+      expect(pick.querySelector("svg.glyph")).not.toBeNull();
+      expect(pick.getAttribute("aria-label")).toBe("Pick this rule's element on the page");
+
+      pick.click();
       expect(onPick).toHaveBeenCalledWith(rule.id);
     });
 

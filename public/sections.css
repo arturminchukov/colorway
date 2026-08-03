@@ -1,0 +1,340 @@
+/* The favicon and content-rules sections, shared verbatim by the panel window and the
+   options page. Everything here is scoped to the sections' own classes and sets its
+   own typography and field sizing: the two surfaces style plain `label`, `button` and
+   `input` very differently, and a shared section must look the same on both. */
+
+/* body of a disclosure */
+.section {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: var(--space-3);
+}
+.section > p { margin: 0; }
+.section .muted { color: var(--muted); font-size: 11.5px; }
+
+/* Caption, control, and whatever the row adds after it (a pick button). A fixed first
+   column is what keeps the fields of a form lined up instead of each row starting
+   wherever its own caption happens to end. Every field on either surface is built by
+   labelled() and carries this class, so the options page and the panel window lay out
+   their fields identically. */
+.field {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11.5px;
+  color: var(--muted);
+  justify-items: stretch;
+}
+.field > input[type="text"],
+.field > textarea {
+  width: 100%;
+  min-width: 0;
+  background: var(--field);
+  color: var(--fg);
+  border: 1px solid var(--field-line);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font: 400 12px/1.45 system-ui, -apple-system, sans-serif;
+}
+.field > textarea {
+  min-height: 58px;
+  resize: vertical;
+  font: 500 11.5px/1.5 ui-monospace, SFMono-Regular, monospace;
+}
+.field > input[type="text"]:focus,
+.field > textarea:focus { border-color: var(--accent); outline: none; }
+.field > input[type="checkbox"] { justify-self: start; }
+/* A field whose control is taller than one line: the caption reads as its heading, so
+   it sits at the top rather than floating halfway down the side of a text area. */
+.field.tall { align-items: start; }
+.field.tall > * { margin-top: 3px; }
+.field.tall > textarea { margin-top: 0; }
+/* A note about the field, under the control it explains rather than under its caption. */
+.field > .hint { grid-column: 2 / -1; margin-top: 0; color: var(--muted); font-size: 11px; }
+.section input[type="color"],
+.field > input[type="color"] {
+  width: 30px;
+  height: 26px;
+  justify-self: start;
+  padding: 0;
+  border: 1px solid var(--field-line);
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+}
+.mono {
+  font: 500 11.5px/1.3 ui-monospace, SFMono-Regular, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted { color: var(--muted); font-size: 11.5px; }
+.error { color: var(--danger); font-size: 11.5px; }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); }
+.grow { flex: 1; min-width: 0; }
+/* A field that shares its row with something else — the enabled toggle next to a
+   profile's name, the same shape as the panel's own header row. */
+.row { display: flex; align-items: center; gap: var(--space-3); }
+
+/* disclosure row */
+.disclosure {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  /* Explicitly, not inherited from a surface's own `button` rule: the options page
+     styles only the buttons it owns, so the UA border would show through here. */
+  border: 0;
+  border-top: 1px solid var(--line);
+  font: 500 12.5px/1.3 system-ui;
+  cursor: pointer;
+  background: none;
+  color: var(--fg);
+  width: 100%;
+  text-align: left;
+  border-radius: 0;
+}
+/* Open or closed has to be visible without reading the row's contents: the caret is
+   the one part of a disclosure people look for. */
+.disclosure::before {
+  content: "";
+  width: 0;
+  height: 0;
+  flex: 0 0 auto;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  opacity: .55;
+  transition: transform .15s ease;
+}
+.disclosure[aria-expanded="true"]::before { transform: rotate(90deg); }
+.disclosure[aria-expanded="true"] { background: var(--raised); }
+.disclosure:hover { background: var(--raised); }
+.disclosure:hover::before { opacity: 1; }
+.disclosure .summary {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.chip { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--field-line); flex: 0 0 auto; }
+/* The favicon summary's chip is a real preview — an icon, or the icon's silhouette in
+   the chosen color — so it must not be boxed like a color swatch. */
+.summary img.chip, .summary .swatch.chip { border: 0; }
+
+/* segmented control */
+.modes { display: flex; background: var(--raised); border-radius: 9px; padding: 3px; gap: 3px; }
+.modes button {
+  flex: 1;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font: 400 10.5px/1 system-ui;
+  cursor: pointer;
+}
+.modes button:hover { background: var(--bg); color: var(--fg); }
+.modes button[aria-pressed="true"] { background: var(--bg); color: var(--fg); font-weight: 600; }
+.modes img, .modes .swatch { width: 18px; height: 18px; }
+.swatch { border-radius: 4px; display: grid; place-items: center; font: 700 8px/1 system-ui; color: #fff; }
+
+/* The site's own icon used as a mask over the chosen color: what shows is the icon's
+   shape filled with that color, which is what the content script's canvas tint does to
+   the real favicon. --icon is set inline, per icon, by whoever renders it. */
+.tinted {
+  -webkit-mask-image: var(--icon);
+  mask-image: var(--icon);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  border-radius: 0;
+}
+
+/* rules */
+.rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.rule:first-of-type { border-top: 0; }
+.rule:hover { background: var(--raised); }
+.rule .colors { display: flex; gap: 3px; flex: 0 0 auto; }
+.rule .colors i { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--field-line); display: block; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.dot.matched { background: var(--ok); }
+.dot.not-found { background: var(--warn); }
+.dot.unpainted { background: var(--danger); }
+.dot.unknown { background: var(--muted); }
+
+/* An open rule is one box: its row and its fields share a border and a fill, so what
+   the fields belong to is visible rather than inferred from the order of the list. */
+.rule-open {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--raised);
+  overflow: hidden;
+}
+.rule-open > .rule {
+  margin: 0;
+  border-top: 0;
+  border-radius: 0;
+}
+/* Already inside the open box: a hover fill here would only flicker under the pointer. */
+.rule-open > .rule:hover { background: none; }
+
+.editor {
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+  /* The box around it provides the fill; this only separates the fields from the row. */
+  border-top: 1px solid var(--field-line);
+}
+
+/* A rule's two color properties, captioned and boxed as one thing: they are set
+   together far more often than apart. */
+.colors-group {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius);
+}
+.colors-group .group-title {
+  font: 600 10px/1 system-ui;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+/* Left-packed, not stretched across whatever width the surface happens to give it:
+   icon, name, swatch and reset belong together as one control, and on the wide options
+   page a 1fr name column pushed the swatch half a card away from what it names. */
+.color {
+  display: grid;
+  grid-template-columns: 16px 44px auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.color .glyph { display: block; color: var(--muted); }
+/* A color the rule does not set yet: live, but visibly not in play until touched. */
+.color.unset input[type="color"] { border-style: dashed; opacity: .65; }
+/* Always on screen so the row's shape never changes under the pointer, inert while
+   there is nothing to put back. */
+.color .reset[disabled] { opacity: .35; cursor: default; }
+.color .reset:not([disabled]):hover { color: var(--accent); }
+
+/* Waiting for the user to click something on the page. Takes the row under the
+   selector field so the sentence has room to be a sentence. */
+.waiting {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid var(--field-line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+/* buttons inside a section */
+.section .link {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  padding: 0;
+  font: 400 11.5px/1.3 system-ui;
+  text-align: left;
+  cursor: pointer;
+}
+.section .link:hover { color: var(--fg); text-decoration: underline; }
+.icon {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  padding: var(--space-1);
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.icon:hover { color: var(--fg); background: var(--raised); }
+.rule .remove:hover { color: var(--danger); background: var(--raised); }
+/* The crosshair that hands the page to the picker. It sits at the end of the selector
+   row; the editor around it is already --raised, so it takes the field color and an
+   edge of its own to read as something pressable. */
+.pick {
+  padding: 5px;
+  border: 1px solid var(--field-line);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--muted);
+}
+.pick:hover { background: var(--field); border-color: var(--accent); color: var(--accent); }
+.section > .primary {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 12.5px/1 system-ui;
+  cursor: pointer;
+}
+.section > .primary:hover { filter: brightness(1.06); }
+
+/* Every clickable thing in a section says so on hover, and gives way under the press. */
+.disclosure,
+.rule,
+.modes button,
+.icon,
+.pick,
+.section .link,
+.section > .primary,
+.section input[type="color"] {
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease, filter .12s ease;
+}
+.section input[type="color"]:hover { border-color: var(--accent); }
+.icon:active,
+.pick:active,
+.modes button:active,
+.section > .primary:active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  .disclosure,
+  .rule,
+  .modes button,
+  .icon,
+  .pick,
+  .section .link,
+  .section > .primary,
+  .section input[type="color"],
+  .disclosure::before {
+    transition: none;
+  }
+}

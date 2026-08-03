@@ -637,6 +637,69 @@ describe("panel: the favicon section stays open across a settled edit", () => {
   });
 });
 
+describe("panel: the rules section's own disclosure", () => {
+  it("starts open — the rules are what the window is opened to edit", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [createRule(".a")] })));
+
+    const toggles = getApp().querySelectorAll(".disclosure");
+    expect(toggles[0].getAttribute("aria-expanded")).toBe("false"); // favicon
+    expect(toggles[1].getAttribute("aria-expanded")).toBe("true"); // content rules
+    expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
+  });
+
+  it("stays collapsed across a settled edit made outside it", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [createRule(".a")], faviconMode: "tinted" })));
+
+    getApp().querySelectorAll<HTMLButtonElement>(".disclosure")[1].click();
+    // Toggling re-renders the whole panel, and render() awaits the tab and its status
+    // before the rules section is back in the DOM at all.
+    await vi.waitFor(() =>
+      expect(getApp().querySelectorAll(".disclosure")[1]?.getAttribute("aria-expanded")).toBe("false"),
+    );
+
+    // A settled edit in the other section rebuilds the whole panel, rules section
+    // included: open/closed lives in the module, not on the rebuilt element.
+    vi.useFakeTimers();
+    getApp().querySelectorAll<HTMLButtonElement>(".disclosure")[0].click();
+    await vi.advanceTimersByTimeAsync(0);
+    const initialsButton = Array.from(getApp().querySelectorAll<HTMLButtonElement>(".modes button")).find(
+      (button) => button.textContent?.includes("Initials"),
+    )!;
+    initialsButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getApp().querySelectorAll(".disclosure")[1].getAttribute("aria-expanded")).toBe("false");
+
+    await vi.advanceTimersByTimeAsync(300);
+  });
+
+  it("re-opens for a rule the user just picked, so it cannot land out of sight", async () => {
+    tabsSendMessage.mockResolvedValue({ profileName: "site", matches: [], faviconFellBack: false });
+    await loadModule(settingsWith(profile({ rules: [] })));
+
+    getApp().querySelectorAll<HTMLButtonElement>(".disclosure")[1].click();
+    // Toggling re-renders the whole panel, and render() awaits the tab and its status
+    // before the rules section is back in the DOM at all.
+    await vi.waitFor(() =>
+      expect(getApp().querySelectorAll(".disclosure")[1]?.getAttribute("aria-expanded")).toBe("false"),
+    );
+
+    vi.useFakeTimers();
+    pickedListener()(
+      { type: "color-vmui:picked", selector: ".picked" },
+      { tab: { id: 1, url: "https://example.com" } },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getApp().querySelectorAll(".disclosure")[1].getAttribute("aria-expanded")).toBe("true");
+    expect(getApp().querySelector(".rule .link")?.textContent).toBe(".picked");
+
+    await vi.advanceTimersByTimeAsync(300);
+  });
+});
+
 describe("panel: rules section wiring", () => {
   it("passes the content script's reported states through to the rule dots and the footer note", async () => {
     const matched = createRule(".matched");
