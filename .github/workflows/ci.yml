@@ -40,6 +40,12 @@ jobs:
       - name: Build
         run: yarn build
 
+      # The icons are committed; regenerating them must not change the build.
+      - name: Check icons are up to date
+        run: |
+          node scripts/gen-icons.mjs
+          git diff --exit-code -- public/icons
+
       # Runs the same validator AMO uses. Fails on errors; warnings are allowed.
       - name: Lint web extension (Firefox / AMO)
         run: npx --yes web-ext@latest lint --source-dir dist/firefox --output text

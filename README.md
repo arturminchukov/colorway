@@ -97,6 +97,20 @@ The meaningful logic lives in `src/core/`: pure functions with no browser APIs, 
 The DOM side (`src/content/`) is covered in jsdom, including the idempotency invariant — a repeated
 apply must not mutate the region the applier itself observes, or the page spins in a microtask loop.
 
+## Icon
+
+The mark is a **C** on a rounded dark card — a ring open to the right, its stroke sweeping through
+the palette the UI itself uses (`--accent` → `--ok` → `--warn` → `--danger` from `tokens.css`). Both
+halves of the name in one shape: the initial, and a single way running through the colors.
+
+`scripts/gen-icons.mjs` (`yarn icons`) generates `public/icons/icon-{16,32,48,128}.png` with no
+external dependencies — the shape is a function of the unit square, supersampled 4×4 for
+anti-aliasing and written straight into a PNG through `node:zlib`. Its geometry is four constants
+(`RING_OUTER`, `RING_INNER`, `MOUTH`, `STOPS`), so retuning the mark means editing numbers, not
+redrawing it. The PNGs are committed, and `public/` is copied verbatim into every build, so a normal
+`yarn build` needs nothing else. CI regenerates them and fails if the result differs from what is
+committed.
+
 ## CI/CD
 
 - **`.github/workflows/ci.yml`** — on every pull request and push to `main`/`master`: typecheck,
@@ -180,7 +194,8 @@ Result
 - Each is produced by Vite/esbuild (versions pinned in yarn.lock) as a standalone IIFE bundled from
   the TypeScript sources under src/. No minification is applied, so the output stays readable.
 - scripts/manifest.mjs generates dist/firefox/manifest.json.
-- public/ (HTML, CSS) is copied verbatim.
+- public/ (HTML, CSS, icons) is copied verbatim. The PNG icons are committed; they can be
+  regenerated with `node scripts/gen-icons.mjs`.
 
 Entry points: src/content/index.ts, src/background/index.ts, src/panel/index.ts,
 src/options/index.ts, src/content/picker/index.ts, src/content/panelFrame.ts
