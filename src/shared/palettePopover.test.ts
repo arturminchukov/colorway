@@ -112,3 +112,110 @@ describe("palettePopover", () => {
     expect(element.getAttribute("aria-label")).toBe("Color palette");
   });
 });
+
+describe("palettePopover editing", () => {
+  it("saves the current color under a typed name", () => {
+    const onPaletteChange = vi.fn();
+    const { element } = palettePopover({
+      value: "#ff0000",
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange,
+      onCustom: vi.fn(),
+    });
+
+    element.querySelector<HTMLButtonElement>(".palette-save")!.click();
+    const name = element.querySelector<HTMLInputElement>(".palette-name input")!;
+    name.value = "prod";
+    element.querySelector<HTMLButtonElement>(".palette-name button")!.click();
+
+    expect(onPaletteChange).toHaveBeenCalledTimes(1);
+    expect(onPaletteChange.mock.calls[0][0]).toMatchObject([{ value: "#ff0000", name: "prod" }]);
+    // The saved color is now in the grid, and the name row is gone.
+    expect(element.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
+    expect(element.querySelector(".palette-name")).toBeNull();
+  });
+
+  it("saves without a name when Enter is pressed on the empty field", () => {
+    const onPaletteChange = vi.fn();
+    const { element } = palettePopover({
+      value: "#00ff00",
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange,
+      onCustom: vi.fn(),
+    });
+
+    element.querySelector<HTMLButtonElement>(".palette-save")!.click();
+    const name = element.querySelector<HTMLInputElement>(".palette-name input")!;
+    name.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(onPaletteChange.mock.calls[0][0]).toMatchObject([{ value: "#00ff00", name: "" }]);
+  });
+
+  it("cannot save when there is no color to save", () => {
+    const { element } = palettePopover({
+      value: null,
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    expect(element.querySelector<HTMLButtonElement>(".palette-save")!.disabled).toBe(true);
+  });
+
+  it("renames a saved color from the edit list", () => {
+    const onPaletteChange = vi.fn();
+    const palette = saveColor([], "#ff0000", "prod");
+    const { element } = palettePopover({
+      value: null,
+      palette,
+      onSelect: vi.fn(),
+      onPaletteChange,
+      onCustom: vi.fn(),
+    });
+
+    element.querySelector<HTMLButtonElement>(".palette-edit")!.click();
+    const field = element.querySelector<HTMLInputElement>(".palette-row input")!;
+    field.value = "staging";
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(onPaletteChange.mock.calls[0][0]).toMatchObject([{ id: palette[0].id, name: "staging" }]);
+  });
+
+  it("removes a saved color from the edit list", () => {
+    const onPaletteChange = vi.fn();
+    const palette = saveColor([], "#ff0000", "prod");
+    const { element } = palettePopover({
+      value: null,
+      palette,
+      onSelect: vi.fn(),
+      onPaletteChange,
+      onCustom: vi.fn(),
+    });
+
+    element.querySelector<HTMLButtonElement>(".palette-edit")!.click();
+    element.querySelector<HTMLButtonElement>(".palette-row .remove")!.click();
+
+    expect(onPaletteChange.mock.calls[0][0]).toEqual([]);
+    // Nothing left to edit: the list is gone and so is the empty-state note's grid.
+    expect(element.querySelector(".palette-row")).toBeNull();
+  });
+
+  it("goes back to the grid when editing is done", () => {
+    const { element } = palettePopover({
+      value: null,
+      palette: saveColor([], "#ff0000", "prod"),
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+
+    const edit = element.querySelector<HTMLButtonElement>(".palette-edit")!;
+    edit.click();
+    expect(element.querySelectorAll(".palette-row")).toHaveLength(1);
+    element.querySelector<HTMLButtonElement>(".palette-edit")!.click();
+    expect(element.querySelector(".palette-row")).toBeNull();
+    expect(element.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
+  });
+});

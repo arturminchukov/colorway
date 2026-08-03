@@ -1,4 +1,4 @@
-import { normalizeHex, PRESET_COLORS, type SavedColor } from "../core/palette";
+import { normalizeHex, PRESET_COLORS, removeColor, renameColor, saveColor, type SavedColor } from "../core/palette";
 
 export type PalettePopover = {
   element: HTMLElement;
@@ -28,12 +28,24 @@ export function palettePopover(options: {
   onCustom(): void;
 }): PalettePopover {
   let value = options.value === null ? null : normalizeHex(options.value);
-  const palette = options.palette;
+  let palette = options.palette;
+  // Two states the popover keeps to itself: the name row that "Save current" opens,
+  // and whether the saved colors show as a grid or as an editable list. Neither is
+  // worth a caller's attention — they die with the popover.
+  let naming = false;
+  let editing = false;
 
   const element = document.createElement("div");
   element.className = "palette-popover";
   element.setAttribute("role", "dialog");
   element.setAttribute("aria-label", "Color palette");
+
+  /** Every palette edit funnels through here, so the caller and the redraw stay in step. */
+  function changePalette(next: SavedColor[]): void {
+    palette = next;
+    options.onPaletteChange(next);
+    render();
+  }
 
   function swatch(color: string, label: string): HTMLButtonElement {
     const button = document.createElement("button");
@@ -58,6 +70,8 @@ export function palettePopover(options: {
     for (const button of element.querySelectorAll<HTMLButtonElement>(".palette-grid button")) {
       button.setAttribute("aria-pressed", String(button.dataset.color === value));
     }
+    if (saveButton) saveButton.disabled = value === null;
+    if (editButton) editButton.disabled = palette.length === 0;
   }
 
   function caption(text: string): HTMLElement {
@@ -97,9 +111,111 @@ export function palettePopover(options: {
     return grid;
   }
 
+  function savedList(): HTMLElement {
+    const list = document.createElement("div");
+    list.className = "palette-list";
+    for (const color of palette) {
+      const row = document.createElement("div");
+      row.className = "palette-row";
+
+      const chip = document.createElement("i");
+      chip.style.background = color.value;
+
+      const name = document.createElement("input");
+      name.type = "text";
+      name.value = color.name;
+      name.placeholder = color.value;
+      name.setAttribute("aria-label", `Name for ${labelOf(color)}`);
+      // On change, not on input: renaming on every keystroke would write to storage
+      // once per letter.
+      name.addEventListener("change", () => changePalette(renameColor(palette, color.id, name.value)));
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon remove";
+      remove.textContent = "×";
+      remove.title = `Remove ${labelOf(color)}`;
+      remove.setAttribute("aria-label", `Remove ${labelOf(color)}`);
+      remove.addEventListener("click", () => changePalette(removeColor(palette, color.id)));
+
+      row.append(chip, name, remove);
+      list.append(row);
+    }
+    return list;
+  }
+
+  function nameRow(): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "palette-name";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Name (optional)";
+    input.setAttribute("aria-label", "Name for the saved color");
+
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "icon";
+    confirm.textContent = "✓";
+    confirm.title = "Save this color";
+    confirm.setAttribute("aria-label", "Save this color");
+
+    const commit = (): void => {
+      if (value === null) return;
+      naming = false;
+      changePalette(saveColor(palette, value, input.value));
+    };
+    confirm.addEventListener("click", commit);
+    input.addEventListener("keydown", (event) => {
+      // Escape closes the name row, not the whole popover: the palette is still what
+      // the user came for. colorField.ts closes on Escape, so it must not see this one.
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        naming = false;
+        render();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      commit();
+    });
+
+    row.append(input, confirm);
+    // Deferred: the row does not exist in the document until render() appends it.
+    queueMicrotask(() => input.focus());
+    return row;
+  }
+
+  // Held so syncState() can re-arm them without a redraw; both are replaced on every
+  // render(), so they are always the buttons currently in the document.
+  let saveButton: HTMLButtonElement | null = null;
+  let editButton: HTMLButtonElement | null = null;
+
   function actions(): HTMLElement {
     const row = document.createElement("div");
     row.className = "palette-actions";
+
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "link palette-save";
+    save.textContent = "⊕ Save current";
+    // Nothing to save while the field leaves the property alone; a button that would
+    // silently do nothing is worse than a visibly inert one.
+    save.disabled = value === null;
+    save.addEventListener("click", () => {
+      naming = true;
+      render();
+    });
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "link palette-edit";
+    edit.textContent = editing ? "Done" : "Edit";
+    edit.disabled = palette.length === 0;
+    edit.addEventListener("click", () => {
+      editing = !editing;
+      render();
+    });
 
     const custom = document.createElement("button");
     custom.type = "button";
@@ -107,12 +223,24 @@ export function palettePopover(options: {
     custom.textContent = "Custom…";
     custom.addEventListener("click", options.onCustom);
 
-    row.append(custom);
+    row.append(save, edit, custom);
+    saveButton = save;
+    editButton = edit;
     return row;
   }
 
   function render(): void {
-    element.replaceChildren(caption("Preset"), presetGrid(), caption("Saved"), savedGrid(), actions());
+    // Editing an empty palette is not a state anyone can be in: the last removal drops
+    // straight back to the grid (and its empty note) rather than leaving an empty list.
+    if (palette.length === 0) editing = false;
+    element.replaceChildren(
+      caption("Preset"),
+      presetGrid(),
+      caption("Saved"),
+      editing ? savedList() : savedGrid(),
+      actions(),
+    );
+    if (naming) element.append(nameRow());
   }
 
   render();
