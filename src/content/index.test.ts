@@ -64,7 +64,7 @@ async function sendPreview(profile: Profile | null): Promise<StatusResponse> {
 
 /** Imports the module and waits for main()'s own initial (inert, no-profile) refresh(). */
 async function boot(): Promise<void> {
-  load.mockResolvedValueOnce({ version: 3, profiles: [] });
+  load.mockResolvedValueOnce({ version: 4, profiles: [], palette: [] });
   await import("./index");
   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 }
@@ -89,7 +89,7 @@ describe("favicon fallback flag survives overlapping resolutions", () => {
 
     // Call 1: main()'s own initial refresh() — kept inert (no profile) so it does
     // not interfere with the two refreshes under test.
-    load.mockResolvedValueOnce({ version: 3, profiles: [] });
+    load.mockResolvedValueOnce({ version: 4, profiles: [], palette: [] });
 
     await import("./index");
     // Let the initial refresh (apply(null), no async favicon work) settle.
@@ -106,13 +106,13 @@ describe("favicon fallback flag survives overlapping resolutions", () => {
     tint.mockImplementationOnce(() => deferredB.promise); // profile B's tint
 
     // apply(profileA) starts; its tint is left pending.
-    load.mockResolvedValueOnce({ version: 3, profiles: [profileA] });
+    load.mockResolvedValueOnce({ version: 4, profiles: [profileA], palette: [] });
     onChanged({ settings: {} }, "local");
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(tint).toHaveBeenCalledTimes(1));
 
     // apply(profileB) starts before A's tint resolves — activeProfile is now B.
-    load.mockResolvedValueOnce({ version: 3, profiles: [profileB] });
+    load.mockResolvedValueOnce({ version: 4, profiles: [profileB], palette: [] });
     onChanged({ settings: {} }, "local");
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
     await vi.waitFor(() => expect(tint).toHaveBeenCalledTimes(2));
@@ -219,7 +219,7 @@ describe("instant color preview", () => {
       changes: Record<string, unknown>,
       area: string,
     ) => void;
-    load.mockResolvedValueOnce({ version: 3, profiles: [] });
+    load.mockResolvedValueOnce({ version: 4, profiles: [], palette: [] });
     onChanged({ settings: {} }, "local");
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 

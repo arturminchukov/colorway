@@ -26,6 +26,8 @@ const profile: Profile = {
   rules: [{ id: "r1", selector: ".vm-header", background: "#c62828", text: null }],
 };
 
+const savedColor = { id: "c1", value: "#ff0000", name: "prod" };
+
 describe("createSettingsRepo", () => {
   it("returns defaults on empty storage", async () => {
     const repo = createSettingsRepo(fakeArea());
@@ -35,11 +37,40 @@ describe("createSettingsRepo", () => {
   it("round-trips settings", async () => {
     const repo = createSettingsRepo(fakeArea());
     const settings = {
-      version: 3 as const,
+      version: 4 as const,
       profiles: [profile],
+      palette: [savedColor],
     };
     await repo.save(settings);
     expect(await repo.load()).toEqual(settings);
+  });
+
+  it("migrates v3 settings by giving them an empty palette", async () => {
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: [profile] } }));
+    expect(await repo.load()).toEqual({ version: 4, profiles: [profile], palette: [] });
+  });
+
+  it("keeps a stored palette", async () => {
+    const stored = { version: 4, profiles: [profile], palette: [savedColor] };
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: stored }));
+    expect(await repo.load()).toEqual(stored);
+  });
+
+  it("drops only the invalid palette entries and keeps the profiles", async () => {
+    const stored = {
+      version: 4,
+      profiles: [profile],
+      palette: [savedColor, { id: "c2", value: "red", name: "" }, { id: "c3", name: "no value" }, "nope"],
+    };
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: stored }));
+    const loaded = await repo.load();
+    expect(loaded.palette).toEqual([savedColor]);
+    expect(loaded.profiles).toEqual([profile]);
+  });
+
+  it("survives a palette that is not an array at all", async () => {
+    const repo = createSettingsRepo(fakeArea({ [SETTINGS_KEY]: { version: 4, profiles: [profile], palette: 7 } }));
+    expect(await repo.load()).toEqual({ version: 4, profiles: [profile], palette: [] });
   });
 
   it("falls back to defaults when stored data has the wrong shape", async () => {
@@ -87,7 +118,7 @@ describe("createSettingsRepo", () => {
       }),
     );
 
-    expect(await repo.load()).toEqual({ version: 3, profiles: [validProfile] });
+    expect(await repo.load()).toEqual({ version: 4, profiles: [validProfile], palette: [] });
   });
 
   it("falls back to empty profiles when every stored profile is malformed", async () => {
@@ -95,7 +126,7 @@ describe("createSettingsRepo", () => {
       fakeArea({ [SETTINGS_KEY]: { version: 3, profiles: [123, {}, "nope"] } }),
     );
 
-    expect(await repo.load()).toEqual({ version: 3, profiles: [] });
+    expect(await repo.load()).toEqual({ version: 4, profiles: [], palette: [] });
   });
 
   it("drops a profile whose rules are malformed", async () => {

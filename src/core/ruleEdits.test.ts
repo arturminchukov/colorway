@@ -16,7 +16,7 @@ const profile: Profile = {
   rules: [rule, { id: "r2", selector: ".b", background: null, text: "#fff" }],
 };
 
-const settings: Settings = { version: 3, profiles: [profile] };
+const settings: Settings = { version: 4, profiles: [profile], palette: [] };
 
 describe("updateProfile", () => {
   it("applies the patch to the named profile only", () => {

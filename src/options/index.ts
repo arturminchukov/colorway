@@ -9,7 +9,7 @@ import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const app = document.getElementById("app")!;
 
-let settings: Settings = { version: 3, profiles: [] };
+let settings: Settings = { version: 4, profiles: [], palette: [] };
 
 // Cards the user has typed into since the last render(). The storage listener below,
 // and the add/delete handlers in render(), all refuse to rebuild while this is

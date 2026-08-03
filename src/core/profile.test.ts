@@ -24,7 +24,7 @@ describe("addRuleForUrl", () => {
   const rule = { id: "r1", selector: ".a", background: "#c62828", text: null };
 
   it("creates a profile for the host when nothing matches", () => {
-    const next = addRuleForUrl({ version: 3, profiles: [] }, "https://vm.corp/vmui/", rule);
+    const next = addRuleForUrl({ version: 4, profiles: [], palette: [] }, "https://vm.corp/vmui/", rule);
     expect(next.profiles).toHaveLength(1);
     expect(next.profiles[0].name).toBe("vm.corp");
     expect(next.profiles[0].patterns).toEqual(["*://vm.corp/*"]);
@@ -33,7 +33,7 @@ describe("addRuleForUrl", () => {
 
   it("appends to the profile that already matches", () => {
     const existing = { ...createProfile("vm.corp"), id: "p1", patterns: ["*://vm.corp/*"] };
-    const settings: Settings = { version: 3, profiles: [existing] };
+    const settings: Settings = { version: 4, profiles: [existing], palette: [] };
     const next = addRuleForUrl(settings, "https://vm.corp/vmui/", rule);
     expect(next.profiles).toHaveLength(1);
     expect(next.profiles[0].id).toBe("p1");
@@ -41,14 +41,14 @@ describe("addRuleForUrl", () => {
   });
 
   it("leaves the original settings untouched", () => {
-    const settings: Settings = { version: 3, profiles: [] };
+    const settings: Settings = { version: 4, profiles: [], palette: [] };
     addRuleForUrl(settings, "https://vm.corp/", rule);
     expect(settings.profiles).toEqual([]);
   });
 
   it("attaches to a disabled profile that matches instead of creating a second one", () => {
     const off = { ...createProfile("vm.corp"), id: "p1", enabled: false, patterns: ["*://vm.corp/*"] };
-    const next = addRuleForUrl({ version: 3, profiles: [off] }, "https://vm.corp/", rule);
+    const next = addRuleForUrl({ version: 4, profiles: [off], palette: [] }, "https://vm.corp/", rule);
     expect(next.profiles).toHaveLength(1);
     expect(next.profiles[0].id).toBe("p1");
     expect(next.profiles[0].enabled).toBe(false);
@@ -58,14 +58,14 @@ describe("addRuleForUrl", () => {
   it("attaches to the profile that paints, not an earlier disabled match for the same host", () => {
     const off = { ...createProfile("vm.corp"), id: "a", enabled: false, patterns: ["*://vm.corp/*"] };
     const on = { ...createProfile("vm.corp"), id: "b", patterns: ["*://vm.corp/*"] };
-    const next = addRuleForUrl({ version: 3, profiles: [off, on] }, "https://vm.corp/", rule);
+    const next = addRuleForUrl({ version: 4, profiles: [off, on], palette: [] }, "https://vm.corp/", rule);
     expect(next.profiles).toHaveLength(2);
     expect(next.profiles.find((p) => p.id === "b")?.rules).toEqual([rule]);
     expect(next.profiles.find((p) => p.id === "a")?.rules).toEqual([]);
   });
 
   it("returns the settings unchanged for a url without a host", () => {
-    const settings: Settings = { version: 3, profiles: [] };
+    const settings: Settings = { version: 4, profiles: [], palette: [] };
     expect(addRuleForUrl(settings, "not a url", rule)).toEqual(settings);
   });
 
@@ -75,7 +75,7 @@ describe("addRuleForUrl", () => {
       id: "p1",
       patterns: ["*://*.example.com/*"],
     };
-    const settings: Settings = { version: 3, profiles: [existing] };
+    const settings: Settings = { version: 4, profiles: [existing], palette: [] };
     const next = addRuleForUrl(settings, "https://app.example.com/", rule);
     expect(next.profiles).toHaveLength(1);
     expect(next.profiles[0].id).toBe("p1");
@@ -88,7 +88,7 @@ describe("addRuleForUrl", () => {
       id: "p1",
       patterns: ["*://xvm.corporate.com/*"],
     };
-    const settings: Settings = { version: 3, profiles: [existing] };
+    const settings: Settings = { version: 4, profiles: [existing], palette: [] };
     const next = addRuleForUrl(settings, "https://vm.corp/", rule);
     expect(next.profiles).toHaveLength(2);
     expect(next.profiles[0].rules).toEqual([]);

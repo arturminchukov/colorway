@@ -14,7 +14,7 @@ const SAVE_DELAY_MS = 300;
 
 const app = document.getElementById("app")!;
 
-let settings: Settings = { version: 3, profiles: [] };
+let settings: Settings = { version: 4, profiles: [], palette: [] };
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Which rule's inline editor is open, at most one at a time. Purely local UI state:

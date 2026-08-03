@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, type ColorRule, type FaviconMode, type Profile, type Settings } from "../core/profile";
+import { normalizeHex, type SavedColor } from "../core/palette";
 
 export const SETTINGS_KEY = "settings";
 
@@ -48,11 +49,29 @@ function isProfile(value: unknown): value is Profile {
   return hasValidStrings && hasValidEnabled && hasValidMode && hasValidPatterns && hasValidRules;
 }
 
-/** Checks only the outer shape; individual profiles are validated separately in load(). */
-function isSettingsShape(value: unknown): value is { version: 3; profiles: unknown[] } {
+function isSavedColor(value: unknown): value is SavedColor {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<SavedColor>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.value === "string" &&
+    // Already normalized, not merely parseable: everything downstream paints with it
+    // as-is, and a "#ABC" that slipped through would compare unequal to the same color
+    // chosen from the palette.
+    normalizeHex(candidate.value) === candidate.value
+  );
+}
+
+/**
+ * Both shapes this extension has ever stored. v3 knew nothing about a palette; it is
+ * read as-is and given an empty one, because the extension is published and throwing a
+ * user's profiles away over a version bump is not an option any more.
+ */
+function isSettingsShape(value: unknown): value is { version: 3 | 4; profiles: unknown[]; palette?: unknown } {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as { version?: unknown; profiles?: unknown };
-  return candidate.version === 3 && Array.isArray(candidate.profiles);
+  return (candidate.version === 3 || candidate.version === 4) && Array.isArray(candidate.profiles);
 }
 
 export function createSettingsRepo(area: StorageArea): SettingsRepo {
@@ -64,7 +83,13 @@ export function createSettingsRepo(area: StorageArea): SettingsRepo {
         // Fresh copy so a caller mutating the result can't poison the shared constant.
         return structuredClone(DEFAULT_SETTINGS);
       }
-      return { version: value.version, profiles: value.profiles.filter(isProfile) };
+      return {
+        version: 4,
+        profiles: value.profiles.filter(isProfile),
+        // A corrupted (or, for v3, absent) palette is not a reason to drop the profiles
+        // stored next to it, so it degrades to empty on its own.
+        palette: Array.isArray(value.palette) ? value.palette.filter(isSavedColor) : [],
+      };
     },
     async save(settings) {
       await area.set({ [SETTINGS_KEY]: settings });

@@ -1,4 +1,5 @@
 import { currentProfileForUrl } from "./matcher";
+import type { SavedColor } from "./palette";
 
 export type FaviconMode = "original" | "tinted" | "initials";
 
@@ -28,11 +29,13 @@ export type Profile = {
 };
 
 export type Settings = {
-  version: 3;
+  version: 4;
   profiles: Profile[];
+  /** Colors the user kept, shared by every profile and every color field. */
+  palette: SavedColor[];
 };
 
-export const DEFAULT_SETTINGS: Settings = { version: 3, profiles: [] };
+export const DEFAULT_SETTINGS: Settings = { version: 4, profiles: [], palette: [] };
 
 function lettersFrom(name: string): string {
   const alphanumeric = name.replace(/[^a-z0-9]/gi, "");

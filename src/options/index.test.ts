@@ -25,7 +25,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
 }
 
 function settingsWith(...profiles: Profile[]): Settings {
-  return { version: 3, profiles };
+  return { version: 4, profiles, palette: [] };
 }
 
 function getApp(): HTMLElement {
