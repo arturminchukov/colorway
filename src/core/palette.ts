@@ -12,22 +12,18 @@ export type SavedColor = {
  * stored settings: presets can then be improved by an update, and what is stored stays
  * limited to what the user actually chose. Light and dark ones are both here because
  * the same field paints backgrounds and text.
+ *
+ * Exactly one row of the palette's eight-column grid. A second row of near-neighbours
+ * bought very little: what a user actually wants past a coarse spread of the wheel is
+ * their own color, and that is what "Custom…" and the saved list are for.
  */
 export const PRESET_COLORS: readonly { value: string; name: string }[] = [
   { value: "#ef4444", name: "Red" },
-  { value: "#f97316", name: "Orange" },
   { value: "#f59e0b", name: "Amber" },
-  { value: "#eab308", name: "Yellow" },
   { value: "#22c55e", name: "Green" },
-  { value: "#10b981", name: "Emerald" },
   { value: "#14b8a6", name: "Teal" },
-  { value: "#06b6d4", name: "Cyan" },
   { value: "#3b82f6", name: "Blue" },
-  { value: "#6366f1", name: "Indigo" },
   { value: "#8b5cf6", name: "Violet" },
-  { value: "#ec4899", name: "Pink" },
-  { value: "#78716c", name: "Stone" },
-  { value: "#64748b", name: "Slate" },
   { value: "#ffffff", name: "White" },
   { value: "#111827", name: "Ink" },
 ];

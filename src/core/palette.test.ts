@@ -73,11 +73,17 @@ describe("removeColor", () => {
 });
 
 describe("PRESET_COLORS", () => {
-  it("ships sixteen already-normalized colors with names", () => {
-    expect(PRESET_COLORS).toHaveLength(16);
+  it("ships one grid row of already-normalized colors with names", () => {
+    // Eight: the palette grid is eight columns wide, and the presets are meant to be
+    // one row of it. More would wrap into a second row.
+    expect(PRESET_COLORS).toHaveLength(8);
     for (const preset of PRESET_COLORS) {
       expect(normalizeHex(preset.value)).toBe(preset.value);
       expect(preset.name).not.toBe("");
     }
+  });
+
+  it("has no duplicate values", () => {
+    expect(new Set(PRESET_COLORS.map((preset) => preset.value)).size).toBe(PRESET_COLORS.length);
   });
 });
