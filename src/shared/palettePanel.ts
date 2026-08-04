@@ -33,6 +33,10 @@ export function palettePanel(options: {
   // worth a caller's attention — they die with the panel.
   let naming = false;
   let editing = false;
+  // The color the user mixed by hand, kept beside `value` rather than derived from it.
+  // Clicking a preset moves `value` onto that preset, so a swatch derived from `value`
+  // would disappear in exactly the moment it exists for — getting back.
+  let lastCustom: string | null = null;
 
   const element = document.createElement("div");
   element.className = "palette-panel";
@@ -66,6 +70,33 @@ export function palettePanel(options: {
     return button;
   }
 
+  /** Neither a preset nor saved — the only kind of color that needs a swatch of its own. */
+  function isCustomColor(color: string): boolean {
+    return !PRESET_COLORS.some((preset) => preset.value === color) && !palette.some((saved) => saved.value === color);
+  }
+
+  /** Colors arriving from outside the grids: the initial value, and the native picker. */
+  function rememberIfCustom(next: string | null): void {
+    if (next !== null && isCustomColor(next)) lastCustom = next;
+  }
+
+  /**
+   * Shown, colored and marked in place rather than added and removed: syncState() runs
+   * from a swatch's own click handler, and rebuilding the DOM there takes the focus
+   * with it. It hides itself once the color is saved — the saved grid shows it then.
+   */
+  function syncCustomSwatch(): void {
+    if (!customSwatch) return;
+    const color = lastCustom !== null && isCustomColor(lastCustom) ? lastCustom : null;
+    customSwatch.hidden = color === null;
+    if (color === null) return;
+    customSwatch.style.background = color;
+    customSwatch.dataset.color = color;
+    customSwatch.setAttribute("aria-pressed", String(color === value));
+    customSwatch.setAttribute("aria-label", `Custom color ${color}, not saved`);
+    customSwatch.title = `Custom color ${color}, not saved`;
+  }
+
   /** Moves the current-color mark and re-arms the actions, in place. */
   function syncState(): void {
     for (const button of element.querySelectorAll<HTMLButtonElement>(".palette-grid button")) {
@@ -73,6 +104,7 @@ export function palettePanel(options: {
     }
     if (saveButton) saveButton.disabled = value === null;
     if (editButton) editButton.disabled = palette.length === 0;
+    syncCustomSwatch();
   }
 
   function caption(text: string): HTMLElement {
@@ -191,6 +223,7 @@ export function palettePanel(options: {
   // render(), so they are always the buttons currently in the document.
   let saveButton: HTMLButtonElement | null = null;
   let editButton: HTMLButtonElement | null = null;
+  let customSwatch: HTMLButtonElement | null = null;
 
   function actions(): HTMLElement {
     const row = document.createElement("div");
@@ -199,7 +232,9 @@ export function palettePanel(options: {
     const save = document.createElement("button");
     save.type = "button";
     save.className = "link palette-save";
-    save.textContent = "⊕ Save current";
+    // Just "Save": the swatch beside "Custom…" now shows which color that means, and
+    // the row is close enough to the panel's width that the words cost a wrap.
+    save.textContent = "⊕ Save";
     // Nothing to save while the field leaves the property alone; a button that would
     // silently do nothing is worse than a visibly inert one.
     save.disabled = value === null;
@@ -224,9 +259,23 @@ export function palettePanel(options: {
     custom.textContent = "Custom…";
     custom.addEventListener("click", options.onCustom);
 
-    row.append(save, edit, custom);
+    // The hand-mixed color, kept next to the button that produced it. Dashed in CSS,
+    // because it means what a dashed field swatch means: live, but not kept.
+    const picked = document.createElement("button");
+    picked.type = "button";
+    picked.className = "palette-custom-swatch";
+    picked.addEventListener("click", () => {
+      if (lastCustom === null) return;
+      value = lastCustom;
+      options.onSelect(lastCustom);
+      syncState();
+    });
+
+    row.append(save, edit, custom, picked);
     saveButton = save;
     editButton = edit;
+    customSwatch = picked;
+    syncCustomSwatch();
     return row;
   }
 
@@ -244,12 +293,14 @@ export function palettePanel(options: {
     if (naming) element.append(nameRow());
   }
 
+  rememberIfCustom(value);
   render();
 
   return {
     element,
     setValue(next) {
       value = next === null ? null : normalizeHex(next);
+      rememberIfCustom(value);
       syncState();
     },
   };

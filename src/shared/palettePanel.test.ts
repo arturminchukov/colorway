@@ -219,3 +219,102 @@ describe("palettePanel editing", () => {
     expect(element.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
   });
 });
+
+describe("palettePanel custom swatch", () => {
+  const CUSTOM = "#7c3aed";
+
+  function swatch(element: HTMLElement): HTMLButtonElement {
+    return element.querySelector<HTMLButtonElement>(".palette-custom-swatch")!;
+  }
+
+  it("stays hidden while the current color is one of the presets", () => {
+    const { element } = palettePanel({
+      value: PRESET_COLORS[0].value,
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    expect(swatch(element).hidden).toBe(true);
+  });
+
+  it("stays hidden while the current color is already saved", () => {
+    const palette = saveColor([], CUSTOM, "brand");
+    const { element } = palettePanel({
+      value: CUSTOM,
+      palette,
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    expect(swatch(element).hidden).toBe(true);
+  });
+
+  it("shows the current color when it is neither a preset nor saved", () => {
+    const { element } = palettePanel({
+      value: CUSTOM,
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    expect(swatch(element).hidden).toBe(false);
+    expect(swatch(element).dataset.color).toBe(CUSTOM);
+    expect(swatch(element).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("appears when the native picker moves the color, without a redraw", () => {
+    const panel = palettePanel({
+      value: PRESET_COLORS[0].value,
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    const before = swatch(panel.element);
+    panel.setValue(CUSTOM);
+    expect(swatch(panel.element).hidden).toBe(false);
+    expect(swatch(panel.element).dataset.color).toBe(CUSTOM);
+    // The same element throughout: a redraw here would take the focus with it, and
+    // colorField reads focus leaving the panel as "close".
+    expect(swatch(panel.element)).toBe(before);
+  });
+
+  it("survives a detour through the presets and takes the color back", () => {
+    const onSelect = vi.fn();
+    const panel = palettePanel({
+      value: CUSTOM,
+      palette: [],
+      onSelect,
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+
+    // The whole point of the swatch: without it, clicking a preset would erase the
+    // only way back to a hand-mixed color short of reopening the native picker.
+    presets(panel.element)[3].click();
+    expect(swatch(panel.element).hidden).toBe(false);
+    expect(swatch(panel.element).getAttribute("aria-pressed")).toBe("false");
+
+    swatch(panel.element).click();
+    expect(onSelect).toHaveBeenLastCalledWith(CUSTOM);
+    expect(swatch(panel.element).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("goes away once that color is saved, leaving the saved grid to show it", () => {
+    const { element } = palettePanel({
+      value: CUSTOM,
+      palette: [],
+      onSelect: vi.fn(),
+      onPaletteChange: vi.fn(),
+      onCustom: vi.fn(),
+    });
+    expect(swatch(element).hidden).toBe(false);
+
+    element.querySelector<HTMLButtonElement>(".palette-save")!.click();
+    element.querySelector<HTMLButtonElement>(".palette-name button")!.click();
+
+    expect(swatch(element).hidden).toBe(true);
+    expect(element.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
+  });
+});

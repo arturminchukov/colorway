@@ -170,5 +170,7 @@ describe("colorField", () => {
 
     expect(onPreview).toHaveBeenCalledWith("#00ff00");
     expect(swatch(control).style.background).toBe("rgb(0, 255, 0)");
+    // The panel follows too, so the color mixed by hand gets its own swatch there.
+    expect(panel!.querySelector<HTMLButtonElement>(".palette-custom-swatch")!.hidden).toBe(false);
   });
 });

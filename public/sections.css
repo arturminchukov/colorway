@@ -405,6 +405,19 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .palette-row .remove:hover { color: var(--danger); }
 
 .palette-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+/* The hand-mixed color, sitting next to the button that produced it. Dashed for the
+   same reason an unset field swatch is: live, but not kept. It hides itself once the
+   color is saved, because the saved grid shows it from then on. */
+.palette-custom-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px dashed var(--field-line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.palette-custom-swatch:hover { border-color: var(--accent); }
+.palette-custom-swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette-actions .link {
   background: none;
   border: 0;
@@ -420,11 +433,13 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 
 .swatch-button,
 .palette-grid button,
+.palette-custom-swatch,
 .palette-actions .link {
   transition: background-color .12s ease, color .12s ease, border-color .12s ease;
 }
 @media (prefers-reduced-motion: reduce) {
   .swatch-button,
   .palette-grid button,
+  .palette-custom-swatch,
   .palette-actions .link { transition: none; }
 }
