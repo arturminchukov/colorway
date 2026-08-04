@@ -7,3 +7,7 @@ web-ext-artifacts/
 !.yarn/releases
 .DS_Store
 .superpowers/
+docs/superpowers/
+# Local only: reads a per-repo GH_TOKEN from a file outside the repo (see .envrc).
+.envrc
+*.token
