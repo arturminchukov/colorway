@@ -55,6 +55,11 @@ set a site up from the window, start the picker, or save a profile on the option
    rebuilds a field you're still using. Its × button waits for a pending save to land before the
    window disappears; reloading the page tears the window down along with everything else, and
    still relies on the browser firing `pagehide` in time to flush a very recent edit.
+   Clicking a color swatch opens a palette showing 16 preset colors. Below them is your saved-color
+   list, shared across all profiles and all three color fields (fill, text, and favicon). You can
+   save the current color to this list with an optional name; saved colors without names display
+   their hex value. Edit mode, accessed from the palette, lets you rename and delete saved colors.
+   Custom… opens the browser's native color picker for precise color selection.
 7. Each rule shows a status dot: painting, matching nothing right now, will never paint (no color
    set, or an unusable selector), or unknown. Unknown means the page hasn't answered yet — it hasn't
    loaded the content script, or the extension has no access to it — and is never counted as broken;
