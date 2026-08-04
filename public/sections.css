@@ -15,9 +15,10 @@
 
 /* Caption, control, and whatever the row adds after it (a pick button). A fixed first
    column is what keeps the fields of a form lined up instead of each row starting
-   wherever its own caption happens to end. Every field on either surface is built by
-   labelled() and carries this class, so the options page and the panel window lay out
-   their fields identically. */
+   wherever its own caption happens to end. Every field on either surface carries this
+   class — whether it is a `<label>` from labelled() or, where a label would swallow
+   clicks meant for a popover, a plain element — so the options page and the panel
+   window lay out their fields identically. */
 .field {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) auto;
@@ -233,7 +234,11 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
   border: 1px solid var(--field-line);
   border-radius: var(--radius);
 }
-.colors-group .group-title {
+/* The popover's own "Preset"/"Saved" captions are the same kind of caption, and it is
+   not always inside a .colors-group: the favicon field has no group around it, and the
+   same popover must not look different depending on which field opened it. */
+.colors-group .group-title,
+.palette-popover .group-title {
   font: 600 10px/1 system-ui;
   text-transform: uppercase;
   letter-spacing: .08em;
