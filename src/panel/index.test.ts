@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StatusResponse } from "../content/index";
+import { PRESET_COLORS } from "../core/palette";
 import { createRule, type Profile, type Settings } from "../core/profile";
 
 // index.ts imports `settingsRepo` and `browser` from here; stubbing both lets the
@@ -1443,5 +1444,25 @@ describe("panel: overlapping renders", () => {
     // The DOM reflects the newer render's (B's) data, not the stale, later-arriving one.
     expect(getApp().querySelector(".dot")?.className).toBe("dot unpainted");
     expect(getApp().querySelector(".footer .error")?.textContent).toBe("1 of 1 rules are not painting");
+  });
+});
+
+describe("panel: the palette", () => {
+  it("settles the color chosen in the palette once the popover closes", async () => {
+    const rule = { id: "r1", selector: ".header", background: null, text: null };
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+
+    // Open the rule's editor, then its fill swatch.
+    getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
+    await vi.waitFor(() => expect(getApp().querySelector(".color .swatch-button")).not.toBeNull());
+    getApp().querySelector<HTMLButtonElement>(".color .swatch-button")!.click();
+    getApp().querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+    const written = save.mock.calls.at(-1)![0] as Settings;
+    expect(written.profiles[0].rules[0].background).toBe(PRESET_COLORS[0].value);
+    // Picking a preset is not saving it: the palette is untouched.
+    expect(written.palette).toEqual([]);
   });
 });

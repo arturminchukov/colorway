@@ -256,3 +256,27 @@ describe("options: dirty-card protection survives the editor removal", () => {
     expect(nameInput.value).toBe("editing");
   });
 });
+
+describe("options: the palette", () => {
+  it("writes a saved color straight to storage, without waiting for the card's Save", async () => {
+    const rule = { ...createRule(".header"), background: "#ff0000" };
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+
+    const card = cards()[0];
+    // The rules section renders expanded; a rule's editor opens on its selector button.
+    buttonNamed(card, ".header").click();
+    card.querySelector<HTMLButtonElement>(".color .swatch-button")!.click();
+    card.querySelector<HTMLButtonElement>(".palette-save")!.click();
+    const name = card.querySelector<HTMLInputElement>(".palette-name input")!;
+    name.value = "prod";
+    card.querySelector<HTMLButtonElement>(".palette-name button")!.click();
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    const written = save.mock.calls.at(-1)![0] as Settings;
+    expect(written.palette).toMatchObject([{ value: "#ff0000", name: "prod" }]);
+    // The profile itself was never edited, so it goes back exactly as it came in —
+    // the palette does not ride along on a card's Save.
+    expect(written.profiles[0].rules[0].background).toBe("#ff0000");
+    expect(permissionsRequest).not.toHaveBeenCalled();
+  });
+});

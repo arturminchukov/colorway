@@ -1,3 +1,4 @@
+import type { SavedColor } from "../core/palette";
 import { patternsToRevoke } from "../core/permissions";
 import { createProfile, createRule, type Profile, type Settings } from "../core/profile";
 import { patchRule, withoutRule } from "../core/ruleEdits";
@@ -69,6 +70,23 @@ async function revokeOrphaned(patterns: string[]): Promise<string | null> {
   }
 }
 
+/**
+ * The palette belongs to no profile, so it does not wait for a card's Save and does not
+ * make a card dirty: it is written the moment it changes. It fires while the palette
+ * popover is open, so nothing here re-renders — that would tear the popover down.
+ */
+function savePalette(palette: SavedColor[]): void {
+  const next: Settings = { ...settings, palette };
+  settingsRepo
+    .save(next)
+    .then(() => {
+      settings = next;
+    })
+    .catch((error: unknown) => {
+      setPageStatus({ className: "error", text: `Could not save the palette: ${String(error)}` });
+    });
+}
+
 function readPatterns(area: HTMLTextAreaElement): string[] {
   return area.value
     .split("\n")
@@ -136,6 +154,8 @@ function renderCard(profile: Profile): HTMLElement {
     sections.replaceChildren(
       renderFaviconSection({
         profile: draft,
+        palette: settings.palette,
+        onPaletteChange: savePalette,
         expanded: faviconExpanded,
         onToggle: (next) => {
           faviconExpanded = next;
@@ -148,6 +168,8 @@ function renderCard(profile: Profile): HTMLElement {
         profile: draft,
         // No `states` and no `picker`: this page has no tab to ask about a rule, and
         // no page to pick an element from — selectors are typed here instead.
+        palette: settings.palette,
+        onPaletteChange: savePalette,
         expanded: rulesExpanded,
         onToggleSection: (next) => {
           rulesExpanded = next;

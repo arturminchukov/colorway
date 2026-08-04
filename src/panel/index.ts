@@ -501,6 +501,10 @@ async function render(): Promise<void> {
         // The tab's own icon, so each mode previews on the real favicon rather than on
         // a placeholder. Undefined for a tab that reports none; the section stands in.
         icon: tab.icon,
+        palette: settings.palette,
+        // Through commit(), not commitAndRender(): the palette only changes while its
+        // popover is open, and a re-render would rebuild #app and tear the popover down.
+        onPaletteChange: (palette) => commit({ ...settings, palette }, tab),
         expanded: faviconSectionExpanded,
         onToggle: (nextExpanded) => {
           faviconSectionExpanded = nextExpanded;
@@ -528,6 +532,10 @@ async function render(): Promise<void> {
       renderRulesSection({
         profile,
         states,
+        palette: settings.palette,
+        // Through commit(), not commitAndRender(): the palette only changes while its
+        // popover is open, and a re-render would rebuild #app and tear the popover down.
+        onPaletteChange: (palette) => commit({ ...settings, palette }, tab),
         expanded: rulesSectionExpanded,
         onToggleSection: (nextExpanded) => {
           rulesSectionExpanded = nextExpanded;
