@@ -372,13 +372,19 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
   border-radius: var(--radius);
 }
 
-.palette-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+/* The padding is what the selected swatch's outline needs. It matters most on the saved
+   grid, which scrolls: overflow clips at the padding edge, and one axis set to auto
+   drags the other out of visible with it, so a flush grid would cut the ring off every
+   swatch along its rim. Both grids carry it so their columns line up with each other. */
+.palette-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; padding: 3px; }
 /* Saved colors have no ceiling, so the grid scrolls rather than growing the panel
    past the window it lives in. */
-.palette-grid.saved { max-height: 84px; overflow-y: auto; }
+.palette-grid.saved { max-height: 90px; overflow-y: auto; }
 .palette-grid button {
-  width: 20px;
-  height: 20px;
+  /* Sized by the column rather than fixed, so eight of them plus the gaps cannot come
+     out wider than the panel and put a scrollbar under a single row. */
+  width: 100%;
+  aspect-ratio: 1;
   padding: 0;
   border: 1px solid var(--field-line);
   border-radius: 5px;
