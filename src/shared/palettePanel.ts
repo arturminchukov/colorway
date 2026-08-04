@@ -1,43 +1,44 @@
 import { normalizeHex, PRESET_COLORS, removeColor, renameColor, saveColor, type SavedColor } from "../core/palette";
 
-export type PalettePopover = {
+export type PalettePanel = {
   element: HTMLElement;
-  /** The color moved outside the popover (a native-picker drag): follow it. */
+  /** The color moved outside the panel (a native-picker drag): follow it. */
   setValue(next: string | null): void;
 };
 
 /**
  * The contents of the palette: the presets, the saved colors, and the ways to add to
- * them. It owns none of the lifecycle — opening, positioning and closing belong to
- * colorField.ts, which has the anchor — and it never touches storage: everything it
- * changes leaves through onSelect/onPaletteChange.
+ * them. It owns none of the lifecycle — whether it is on screen at all is the surface's
+ * state, threaded down through colorField.ts — and it never touches storage: everything
+ * it changes leaves through onSelect/onPaletteChange.
  *
- * It keeps its own copy of the palette and of the current color, and redraws itself
- * from them. Nothing else edits the palette while it is open, and redrawing the whole
- * surface around it (which is what a settled edit does) would tear the popover down
- * mid-use — see colorField.ts for why the callbacks out of here are the non-rendering
- * kind.
+ * It keeps its own copy of the palette and of the current color and redraws itself from
+ * them, so picking a color repaints the page without the surface rebuilding. What it
+ * must never do is rebuild its own DOM from inside one of its own click handlers:
+ * syncState() exists for that, and the comments below mark where it matters.
  */
-export function palettePopover(options: {
+export function palettePanel(options: {
   value: string | null;
   palette: SavedColor[];
-  /** A color was picked: live, the popover stays open. */
+  /** A color was picked: live, the panel stays open. */
   onSelect(next: string): void;
   onPaletteChange(next: SavedColor[]): void;
   /** The user asked for the exact-color picker the browser provides. */
   onCustom(): void;
-}): PalettePopover {
+}): PalettePanel {
   let value = options.value === null ? null : normalizeHex(options.value);
   let palette = options.palette;
-  // Two states the popover keeps to itself: the name row that "Save current" opens,
+  // Two states the panel keeps to itself: the name row that "Save current" opens,
   // and whether the saved colors show as a grid or as an editable list. Neither is
-  // worth a caller's attention — they die with the popover.
+  // worth a caller's attention — they die with the panel.
   let naming = false;
   let editing = false;
 
   const element = document.createElement("div");
-  element.className = "palette-popover";
-  element.setAttribute("role", "dialog");
+  element.className = "palette-panel";
+  // A group, not a dialog: it opens in the flow under the swatch, covers nothing and
+  // traps nothing. The swatch that controls it carries aria-expanded and aria-controls.
+  element.setAttribute("role", "group");
   element.setAttribute("aria-label", "Color palette");
 
   /** Every palette edit funnels through here, so the caller and the redraw stay in step. */
@@ -59,7 +60,7 @@ export function palettePopover(options: {
       options.onSelect(color);
       // Not render(): the button that was just clicked has to survive its own handler.
       // Rebuilding the grid removes it, the focus goes to the document body with it,
-      // and colorField.ts reads focus leaving the popover as "close".
+      // and colorField.ts reads focus leaving the panel as "close".
       syncState();
     });
     return button;
@@ -167,7 +168,7 @@ export function palettePopover(options: {
     };
     confirm.addEventListener("click", commit);
     input.addEventListener("keydown", (event) => {
-      // Escape closes the name row, not the whole popover: the palette is still what
+      // Escape closes the name row, not the whole panel: the palette is still what
       // the user came for. colorField.ts closes on Escape, so it must not see this one.
       if (event.key === "Escape") {
         event.stopPropagation();

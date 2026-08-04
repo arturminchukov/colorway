@@ -11,6 +11,8 @@ describe("renderFaviconSection", () => {
       expanded: false,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -28,6 +30,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -45,6 +49,8 @@ describe("renderFaviconSection", () => {
       expanded: false,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle,
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -58,6 +64,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: onToggleWhenOpen,
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -78,6 +86,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -87,6 +97,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -103,6 +115,8 @@ describe("renderFaviconSection", () => {
         expanded: true,
         palette: () => [],
         onPaletteChange: vi.fn(),
+        openColor: null,
+        onToggleColor: vi.fn(),
         onToggle: vi.fn(),
         onPatch: vi.fn(),
         onPatchSettled: vi.fn(),
@@ -143,6 +157,8 @@ describe("renderFaviconSection", () => {
         expanded: false,
         palette: () => [],
         onPaletteChange: vi.fn(),
+        openColor: null,
+        onToggleColor: vi.fn(),
         onToggle: vi.fn(),
         onPatch: vi.fn(),
         onPatchSettled: vi.fn(),
@@ -160,6 +176,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -172,6 +190,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -188,6 +208,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -201,7 +223,10 @@ describe("renderFaviconSection", () => {
     expect(onPatch).not.toHaveBeenCalled();
   });
 
-  it("drives the color field's 'input' through onPatch and 'change' through onPatchSettled", () => {
+  it("drives the color field through onPatch alone, settling nothing on its own", () => {
+    // A color field has no settled callback: the palette closing is a surface state
+    // change, which redraws by itself. onPatchSettled here belongs to the reset button
+    // and to the other fields, not to picking a color.
     const onPatch = vi.fn();
     const onPatchSettled = vi.fn();
     const wrap = renderFaviconSection({
@@ -209,6 +234,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -218,10 +245,9 @@ describe("renderFaviconSection", () => {
     color.value = "#00ff00";
     color.dispatchEvent(new Event("input", { bubbles: true }));
     expect(onPatch).toHaveBeenCalledWith({ faviconColor: "#00ff00" });
-    expect(onPatchSettled).not.toHaveBeenCalled();
 
     color.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(onPatchSettled).toHaveBeenCalledWith({ faviconColor: "#00ff00" });
+    expect(onPatchSettled).not.toHaveBeenCalled();
   });
 
   it("drives the prefix field's 'input' through onPatch and 'change' through onPatchSettled", () => {
@@ -232,6 +258,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch,
       onPatchSettled,
@@ -253,6 +281,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -264,6 +294,8 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
@@ -281,6 +313,8 @@ describe("renderFaviconSection", () => {
         expanded: true,
         palette: () => [],
         onPaletteChange: vi.fn(),
+        openColor: null,
+        onToggleColor: vi.fn(),
         onToggle: vi.fn(),
         onPatch: vi.fn(),
         onPatchSettled: vi.fn(),
@@ -291,34 +325,51 @@ describe("renderFaviconSection", () => {
     }
   });
 
-  it("keeps the palette out of a <label>, so clicking its own empty space cannot close it", () => {
-    // Regression guard for the actual finding: the color field sat inside labelled()'s
-    // `<label>`, and the popover lives inside the color field. Clicking any
-    // non-interactive part of it — a group caption, the "No saved colors yet" note, the
-    // padding, the grid gaps — activated the label, which forwards the click to the
-    // first control inside it: the swatch, whose click closes the palette. An empty
-    // palette is a large target, so this read as the palette collapsing by itself.
+  it("asks the surface to open its palette, and does not draw one until it says so", () => {
+    const onToggleColor = vi.fn();
     const wrap = renderFaviconSection({
       profile: createProfile("prod"),
       expanded: true,
       palette: () => [],
       onPaletteChange: vi.fn(),
+      openColor: null,
+      onToggleColor,
+      onToggle: vi.fn(),
+      onPatch: vi.fn(),
+      onPatchSettled: vi.fn(),
+    });
+
+    expect(wrap.querySelector(".palette-panel")).toBeNull();
+    wrap.querySelector<HTMLButtonElement>(".color-field .swatch-button")!.click();
+    expect(onToggleColor).toHaveBeenCalledWith("favicon");
+  });
+
+  it("keeps the palette outside the caption's <label>, so clicking its own empty space is inert", () => {
+    // Regression guard. The color field sits inside labelled()'s `<label>`; when the
+    // palette lived inside the field too, clicking any non-interactive part of it — a
+    // group caption, the "No saved colors yet" note, the padding, the grid gaps —
+    // activated the label, which forwards the click to the first control inside it: the
+    // swatch. An empty palette is a large target, so this read as the palette collapsing
+    // by itself. The panel is now a sibling of the field rather than a child of it.
+    const onToggleColor = vi.fn();
+    const wrap = renderFaviconSection({
+      profile: createProfile("prod"),
+      expanded: true,
+      palette: () => [],
+      onPaletteChange: vi.fn(),
+      openColor: "favicon",
+      onToggleColor,
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
     document.body.replaceChildren(wrap);
 
-    wrap.querySelector<HTMLButtonElement>(".color-field .swatch-button")!.click();
-    const popover = wrap.querySelector<HTMLElement>(".palette-popover")!;
-    expect(popover.closest("label")).toBeNull();
+    const panel = wrap.querySelector<HTMLElement>(".palette-panel")!;
+    expect(panel.closest("label")).toBeNull();
 
-    popover.querySelector<HTMLElement>(".palette-empty")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(wrap.querySelector(".palette-popover")).not.toBeNull();
-
-    // An open palette is module-level state: one left open here is still open in the
-    // next test.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    panel.querySelector<HTMLElement>(".palette-empty")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleColor).not.toHaveBeenCalled();
   });
 
   it("gives the favicon color field the palette and passes its edits out", () => {
@@ -329,14 +380,14 @@ describe("renderFaviconSection", () => {
       expanded: true,
       palette: () => palette,
       onPaletteChange,
+      openColor: "favicon",
+      onToggleColor: vi.fn(),
       onToggle: vi.fn(),
       onPatch: vi.fn(),
       onPatchSettled: vi.fn(),
     });
     document.body.replaceChildren(wrap);
 
-    const swatch = wrap.querySelector<HTMLButtonElement>(".color-field .swatch-button")!;
-    swatch.click();
     expect(wrap.querySelectorAll(".palette-grid.saved button")).toHaveLength(1);
 
     wrap.querySelector<HTMLButtonElement>(".palette-edit")!.click();

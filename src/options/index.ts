@@ -5,7 +5,6 @@ import { patchRule, withoutRule } from "../core/ruleEdits";
 import { renderFaviconSection } from "../sections/faviconSection";
 import { renderRulesSection } from "../sections/rulesSection";
 import { browser, settingsRepo } from "../shared/browser";
-import { isPaletteOpen, onPaletteClosed } from "../shared/colorField";
 import { checkbox, labelled, textInput } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
@@ -21,25 +20,6 @@ const dirtyProfileIds = new Set<string>();
 // Settings changed elsewhere while a card was dirty, so the page was left standing
 // with stale values in every other card and still owes the user a redraw.
 let pendingExternalUpdate = false;
-
-// Sections owed a redraw once no palette popover is left open anywhere. The popover
-// lives inside the color field that opened it, so redrawing its sections destroys it
-// mid-use — and a settled color edit is exactly what a closing palette produces, so
-// this is the ordinary path rather than an edge case. Held per card, since each card
-// draws (and redraws) its own sections.
-const paletteRedraws = new Set<() => void>();
-
-// Registered once, at load, not per card: the last palette in the document has closed,
-// so whatever was held back can now be drawn.
-onPaletteClosed(() => {
-  // A close can be announced with the next field's palette already open in its place —
-  // a pointer-driven close is announced by the click that follows it, and that click is
-  // often the one that opened the next palette. Still not a moment to rebuild.
-  if (isPaletteOpen()) return;
-  const owed = [...paletteRedraws];
-  paletteRedraws.clear();
-  for (const redraw of owed) redraw();
-});
 
 // Page-level status for actions (add/remove) that have no surviving per-card element
 // to report into once render() rebuilds the list, and for notices about settings
@@ -92,8 +72,8 @@ async function revokeOrphaned(patterns: string[]): Promise<string | null> {
 
 /**
  * The palette belongs to no profile, so it does not wait for a card's Save and does not
- * make a card dirty: it is written the moment it changes. It fires while the palette
- * popover is open, so nothing here re-renders — that would tear the popover down.
+ * make a card dirty: it is written the moment it changes. Nothing here re-renders — it
+ * fires from inside the open panel, which would rebuild the grid under the pointer.
  */
 function savePalette(palette: SavedColor[]): void {
   const next: Settings = { ...settings, palette };
@@ -161,6 +141,10 @@ function renderCard(profile: Profile): HTMLElement {
   let faviconExpanded = false;
   let rulesExpanded = true;
   let expandedRuleId: string | null = null;
+  // Which color field of this card has its palette open, by the key its section hands
+  // back. Per card, like the flags above: two cards' palettes are as independent as
+  // their expanded rules are.
+  let openColor: string | null = null;
 
   const sections = document.createElement("div");
   card.append(sections);
@@ -176,6 +160,11 @@ function renderCard(profile: Profile): HTMLElement {
         profile: draft,
         palette: () => settings.palette,
         onPaletteChange: savePalette,
+        openColor,
+        onToggleColor: (key) => {
+          openColor = key;
+          renderSections();
+        },
         expanded: faviconExpanded,
         onToggle: (next) => {
           faviconExpanded = next;
@@ -190,6 +179,11 @@ function renderCard(profile: Profile): HTMLElement {
         // no page to pick an element from — selectors are typed here instead.
         palette: () => settings.palette,
         onPaletteChange: savePalette,
+        openColor,
+        onToggleColor: (key) => {
+          openColor = key;
+          renderSections();
+        },
         expanded: rulesExpanded,
         onToggleSection: (next) => {
           rulesExpanded = next;
@@ -216,19 +210,6 @@ function renderCard(profile: Profile): HTMLElement {
   }
 
   /**
-   * The redraw a settled edit asks for, held back while a palette popover is open
-   * anywhere — see paletteRedraws above, which is also what lets it happen afterwards.
-   */
-  function redrawSections(): void {
-    if (isPaletteOpen()) {
-      paletteRedraws.add(renderSections);
-      return;
-    }
-    paletteRedraws.delete(renderSections);
-    renderSections();
-  }
-
-  /**
    * `settled` mirrors the panel's commit/commitAndRender split: a live color drag only
    * records the value, while an edit that has settled (a change event, a button click)
    * also redraws the sections so what they show catches up.
@@ -240,7 +221,7 @@ function renderCard(profile: Profile): HTMLElement {
     // button (a mode, a delete, "+ Add rule"), so the card marks itself dirty here
     // rather than relying on the listeners above.
     markDirty();
-    if (settled) redrawSections();
+    if (settled) renderSections();
   }
 
   renderSections();
@@ -443,11 +424,9 @@ function renderCard(profile: Profile): HTMLElement {
 
 function render(): void {
   // Every card is rebuilt from `settings` here, so nothing is left half-edited
-  // and no external change stays owed to the user. A redraw owed to a card's sections
-  // goes with it: the card that asked for it is about to stop existing.
+  // and no external change stays owed to the user.
   dirtyProfileIds.clear();
   pendingExternalUpdate = false;
-  paletteRedraws.clear();
 
   app.replaceChildren();
 

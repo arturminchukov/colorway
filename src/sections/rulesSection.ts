@@ -37,25 +37,37 @@ const SUMMARY_CHIPS = 4;
  * button inside a label is one browser quirk away from also opening the color picker.
  * The swatch gets its accessible name from aria-label instead.
  */
-function renderColor(
-  name: string,
-  glyph: SVGElement,
-  value: string | null,
-  palette: () => SavedColor[],
-  onChange: (next: string | null) => void,
-  onSettled: (next: string | null) => void,
-  onPaletteChange: (next: SavedColor[]) => void,
-): HTMLElement {
+/**
+ * One color property of a rule: the row, and — when this is the open field — the palette
+ * under it. They come back as a fragment rather than one element because the palette is
+ * a sibling of the row, not a cell of it: the row is a grid packed to the left, so a
+ * panel inside it would be as wide as an icon, a caption and a swatch. As siblings in
+ * the single-column .colors-group both come out the width of the group.
+ */
+function renderColor(options: {
+  name: string;
+  glyph: SVGElement;
+  value: string | null;
+  palette: () => SavedColor[];
+  open: boolean;
+  onToggle(): void;
+  onChange(next: string | null): void;
+  onSettled(next: string | null): void;
+  onPaletteChange(next: SavedColor[]): void;
+}): DocumentFragment {
+  const { name, glyph, value, palette, open, onToggle, onChange, onSettled, onPaletteChange } = options;
+
   const color = colorField({
     value,
     ariaLabel: `${name} color`,
     palette,
+    open,
+    onToggle,
     // Touching the swatch is the whole intent: a user who moves a color picker wants
     // that color, and having to tick a box first was one step of ceremony for a
     // decision they had already made. "Leave this property alone" is still reachable —
     // that is what the reset button below is for — but it is no longer the gate.
     onPreview: onChange,
-    onPick: onSettled,
     onPaletteChange,
   });
 
@@ -75,18 +87,26 @@ function renderColor(
 
   const row = document.createElement("div");
   row.className = value === null ? "color unset" : "color";
-  row.append(glyph, label, color, reset);
-  return row;
+  row.append(glyph, label, color.control, reset);
+
+  const fragment = document.createDocumentFragment();
+  fragment.append(row);
+  if (color.panel) fragment.append(color.panel);
+  return fragment;
 }
 
 /** The whole color block of a rule: fill and text, grouped and captioned as one. */
-function renderColors(
-  rule: ColorRule,
-  palette: () => SavedColor[],
-  onPatch: (patch: Partial<ColorRule>) => void,
-  onPatchSettled: (patch: Partial<ColorRule>) => void,
-  onPaletteChange: (next: SavedColor[]) => void,
-): HTMLElement {
+function renderColors(options: {
+  rule: ColorRule;
+  palette: () => SavedColor[];
+  openColor: string | null;
+  onToggleColor(key: string | null): void;
+  onPatch(patch: Partial<ColorRule>): void;
+  onPatchSettled(patch: Partial<ColorRule>): void;
+  onPaletteChange(next: SavedColor[]): void;
+}): HTMLElement {
+  const { rule, palette, openColor, onToggleColor, onPatch, onPatchSettled, onPaletteChange } = options;
+
   const group = document.createElement("div");
   group.className = "colors-group";
 
@@ -94,27 +114,32 @@ function renderColors(
   title.className = "group-title";
   title.textContent = "Colors";
 
-  group.append(
-    title,
-    renderColor(
-      "fill",
-      fillIcon(),
-      rule.background,
+  /**
+   * Which field's palette is open is the surface's state, and this is the name it knows
+   * it by. Scoped to the rule as well as the property so that expanding a different rule
+   * cannot leave a palette open in a row nobody is looking at.
+   */
+  function colorKey(property: "background" | "text"): string {
+    return `${rule.id}:${property}`;
+  }
+
+  function color(name: string, glyph: SVGElement, property: "background" | "text"): DocumentFragment {
+    const key = colorKey(property);
+    const open = openColor === key;
+    return renderColor({
+      name,
+      glyph,
+      value: rule[property],
       palette,
-      (next) => onPatch({ background: next }),
-      (next) => onPatchSettled({ background: next }),
+      open,
+      onToggle: () => onToggleColor(open ? null : key),
+      onChange: (next) => onPatch({ [property]: next }),
+      onSettled: (next) => onPatchSettled({ [property]: next }),
       onPaletteChange,
-    ),
-    renderColor(
-      "text",
-      textIcon(),
-      rule.text,
-      palette,
-      (next) => onPatch({ text: next }),
-      (next) => onPatchSettled({ text: next }),
-      onPaletteChange,
-    ),
-  );
+    });
+  }
+
+  group.append(title, color("fill", fillIcon(), "background"), color("text", textIcon(), "text"));
   return group;
 }
 
@@ -150,11 +175,18 @@ export function renderRulesSection(options: {
    * it opens rather than trust what its section was rendered with — see colorField.
    */
   palette: () => SavedColor[];
-  /** The palette itself changed. Never re-renders: the popover is open while it fires. */
+  /** The palette itself changed. Never re-renders: it fires from the open panel. */
   onPaletteChange(next: SavedColor[]): void;
   onToggleSection(expanded: boolean): void;
   expandedId: string | null;
   onExpand(ruleId: string | null): void;
+  /**
+   * Which color field has its palette open, by the key this section hands back through
+   * onToggleColor. Owned by the surface for the same reason expandedId is: a re-render
+   * then reopens the panel instead of destroying it.
+   */
+  openColor: string | null;
+  onToggleColor(key: string | null): void;
   /** Fires on every keystroke/drag (input): writes the patch without forcing a re-render. */
   onPatch(ruleId: string, patch: Partial<ColorRule>): void;
   /** Fires once an edit settles (change): writes and re-renders. */
@@ -172,7 +204,7 @@ export function renderRulesSection(options: {
   onAdd(): void;
 }): HTMLElement {
   const { profile, states, expanded, palette, onPaletteChange, onToggleSection, expandedId, onExpand } = options;
-  const { onPatch, onPatchSettled, onRemove, picker, onAdd } = options;
+  const { openColor, onToggleColor, onPatch, onPatchSettled, onRemove, picker, onAdd } = options;
 
   const body = document.createElement("div");
   body.className = "section";
@@ -277,13 +309,15 @@ export function renderRulesSection(options: {
 
     editor.append(selectorRow);
     editor.append(
-      renderColors(
+      renderColors({
         rule,
         palette,
-        (patch) => onPatch(rule.id, patch),
-        (patch) => onPatchSettled(rule.id, patch),
+        openColor,
+        onToggleColor,
+        onPatch: (patch) => onPatch(rule.id, patch),
+        onPatchSettled: (patch) => onPatchSettled(rule.id, patch),
         onPaletteChange,
-      ),
+      }),
     );
     open.append(editor);
   }

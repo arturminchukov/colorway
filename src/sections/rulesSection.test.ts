@@ -15,6 +15,8 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
     expanded: true,
     palette: () => [],
     onPaletteChange: vi.fn(),
+    openColor: null,
+    onToggleColor: vi.fn(),
     onToggleSection: vi.fn(),
     expandedId: null,
     onExpand: vi.fn(),
@@ -237,7 +239,10 @@ describe("renderRulesSection", () => {
       expect([...rows].every((row) => row.querySelector(".reset") !== null)).toBe(true);
     });
 
-    it("drives a color field's drag ('input') through onPatch and its settle ('change') through onPatchSettled", () => {
+    it("drives a color field through onPatch alone, settling nothing on its own", () => {
+      // A color field has no settled callback: closing its palette is a surface state
+      // change, which redraws by itself. onPatchSettled belongs to the reset button and
+      // to the selector field, not to picking a color.
       const { section, onPatch, onPatchSettled, rule } = expandedSection();
       const colors = section.querySelectorAll<HTMLInputElement>('input[type="color"]');
       const fill = colors[0];
@@ -245,10 +250,9 @@ describe("renderRulesSection", () => {
       fill.value = "#00ff00";
       fill.dispatchEvent(new Event("input", { bubbles: true }));
       expect(onPatch).toHaveBeenCalledWith(rule.id, { background: "#00ff00" });
-      expect(onPatchSettled).not.toHaveBeenCalled();
 
       fill.dispatchEvent(new Event("change", { bubbles: true }));
-      expect(onPatchSettled).toHaveBeenCalledWith(rule.id, { background: "#00ff00" });
+      expect(onPatchSettled).not.toHaveBeenCalled();
     });
 
     it("offers no checkbox: touching a color is the decision to use it", () => {
@@ -331,34 +335,55 @@ describe("renderRulesSection", () => {
       expect(section.querySelectorAll(".color")[0].className).toBe("color");
     });
 
-    it("gives each of a rule's colors the palette, and settles only when the popover closes", () => {
+    function ruleWithColors(overrides: Partial<Parameters<typeof renderRulesSection>[0]> = {}): HTMLElement {
       const profile = { ...createProfile("prod"), rules: [{ id: "r1", selector: ".x", background: "#ff0000", text: null }] };
-      const onPatch = vi.fn();
-      const onPatchSettled = vi.fn();
-      const wrap = renderRulesSection({
-        profile,
-        expanded: true,
-        palette: () => saveColor([], "#00ff00", "qa"),
-        onPaletteChange: vi.fn(),
-        onToggleSection: vi.fn(),
-        expandedId: "r1",
-        onExpand: vi.fn(),
-        onPatch,
-        onPatchSettled,
-        onRemove: vi.fn(),
-        onAdd: vi.fn(),
-      });
+      const wrap = renderRulesSection(
+        baseOptions({ profile, expanded: true, expandedId: "r1", palette: () => saveColor([], "#00ff00", "qa"), ...overrides }),
+      );
       document.body.replaceChildren(wrap);
+      return wrap;
+    }
+
+    it("names each of a rule's two color fields separately when asking to open one", () => {
+      const onToggleColor = vi.fn();
+      const wrap = ruleWithColors({ onToggleColor });
 
       expect(wrap.querySelectorAll(".color .color-field")).toHaveLength(2);
+      expect(wrap.querySelector(".palette-panel")).toBeNull();
 
-      wrap.querySelector<HTMLButtonElement>(".color .swatch-button")!.click();
+      const swatches = wrap.querySelectorAll<HTMLButtonElement>(".color .swatch-button");
+      swatches[0].click();
+      expect(onToggleColor).toHaveBeenLastCalledWith("r1:background");
+      swatches[1].click();
+      expect(onToggleColor).toHaveBeenLastCalledWith("r1:text");
+    });
+
+    it("opens the palette of the field the surface named, as a sibling of its row", () => {
+      const wrap = ruleWithColors({ openColor: "r1:background" });
+
+      const panels = wrap.querySelectorAll(".palette-panel");
+      expect(panels).toHaveLength(1);
+      // A sibling of the row, not a cell inside it: the row is packed to the left, so a
+      // panel within it would be as wide as an icon, a caption and a swatch.
+      expect(panels[0].parentElement?.className).toBe("colors-group");
+      expect(panels[0].previousElementSibling?.classList.contains("color")).toBe(true);
+    });
+
+    it("asks to close the field that is already open", () => {
+      const onToggleColor = vi.fn();
+      const wrap = ruleWithColors({ openColor: "r1:background", onToggleColor });
+      wrap.querySelectorAll<HTMLButtonElement>(".color .swatch-button")[0].click();
+      expect(onToggleColor).toHaveBeenCalledWith(null);
+    });
+
+    it("previews a color picked from the palette without settling it", () => {
+      const onPatch = vi.fn();
+      const onPatchSettled = vi.fn();
+      const wrap = ruleWithColors({ openColor: "r1:background", onPatch, onPatchSettled });
+
       wrap.querySelector<HTMLButtonElement>(".palette-grid.saved button")!.click();
       expect(onPatch).toHaveBeenCalledWith("r1", { background: "#00ff00" });
       expect(onPatchSettled).not.toHaveBeenCalled();
-
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-      expect(onPatchSettled).toHaveBeenCalledWith("r1", { background: "#00ff00" });
     });
   });
 });

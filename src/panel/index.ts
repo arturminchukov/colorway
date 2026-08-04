@@ -6,7 +6,6 @@ import { removeRule, updateProfile, updateRule } from "../core/ruleEdits";
 import { renderFaviconSection } from "../sections/faviconSection";
 import { renderRulesSection } from "../sections/rulesSection";
 import { browser, settingsRepo } from "../shared/browser";
-import { isPaletteOpen, onPaletteClosed } from "../shared/colorField";
 import { checkbox } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 import { renderTabPreview } from "./tabPreview";
@@ -36,6 +35,12 @@ let faviconSectionExpanded = false;
 // block: rules are what this window is opened to edit, while the favicon is set once
 // per site.
 let rulesSectionExpanded = true;
+
+// Which color field has its palette open, by the key its section hands back, or null
+// for none. Local UI state like expandedRuleId above, and here for the same reason: the
+// palette opens in the flow under its swatch, so a rebuild would drop it unless render()
+// can put it back. One slot, so opening any palette closes whichever was open.
+let openColor: string | null = null;
 
 // Set when starting the picker fails: permission refused, or the background could
 // not inject it. Purely local UI state, like expandedRuleId above. Scoped via
@@ -206,48 +211,9 @@ function persistCommit(next: Settings): Promise<void> {
  * settled edit's own commitAndRender()) picks the status up instead.
  */
 function renderIfIdle(): void {
-  // Focus is not a sufficient guard for an open palette: the popover can be open with
-  // nothing inside it focused, and rebuilding #app takes it down. See
-  // renderUnlessPaletteOpen() below, which owns the catch-up for both.
-  if (isPaletteOpen()) {
-    pendingPaletteRedraw = true;
-    return;
-  }
   if (document.activeElement && app.contains(document.activeElement)) return;
   void render();
 }
-
-// A redraw was asked for while a palette popover was open, so it is owed once no
-// palette is left open — see renderUnlessPaletteOpen() and the listener below.
-let pendingPaletteRedraw = false;
-
-/**
- * The redraw a settled edit asks for, held back while a palette popover is open. The
- * popover lives inside the field that opened it, so rebuilding #app destroys it and
- * takes the focus with it — and a settled color edit is precisely what a closing
- * palette produces, so this is the ordinary path rather than an edge case.
- */
-function renderUnlessPaletteOpen(): void {
-  if (isPaletteOpen()) {
-    pendingPaletteRedraw = true;
-    return;
-  }
-  pendingPaletteRedraw = false;
-  void render();
-}
-
-// Registered once, at load, not per render: the last palette in the document has
-// closed, so whatever was held back above can now be drawn. Deliberately not
-// renderIfIdle() — closing a palette returns focus to its own swatch, which is inside
-// #app, so the idle guard would swallow every catch-up.
-onPaletteClosed(() => {
-  // A close can be announced with another field's palette already open in its place:
-  // a pointer-driven close is announced by the click that follows it, and that click
-  // is often the one that opened the next palette. Still not a moment to rebuild.
-  if (!pendingPaletteRedraw || isPaletteOpen()) return;
-  pendingPaletteRedraw = false;
-  void render();
-});
 
 /**
  * Split in two: render() rebuilds the whole panel with app.replaceChildren(), which
@@ -324,7 +290,7 @@ async function flushAndAwaitSave(): Promise<void> {
 
 function commitAndRender(next: Settings, tab: TabTarget): void {
   commit(next, tab);
-  renderUnlessPaletteOpen();
+  void render();
 }
 
 /**
@@ -542,9 +508,14 @@ async function render(): Promise<void> {
         // a placeholder. Undefined for a tab that reports none; the section stands in.
         icon: tab.icon,
         palette: () => settings.palette,
-        // Through commit(), not commitAndRender(): the palette only changes while its
-        // popover is open, and a re-render would rebuild #app and tear the popover down.
+        // Through commit(), not commitAndRender(): the palette changes from inside the
+        // open panel, and a redraw there would rebuild the grid under the pointer.
         onPaletteChange: (palette) => commit({ ...settings, palette }, tab),
+        openColor,
+        onToggleColor: (key) => {
+          openColor = key;
+          void render();
+        },
         expanded: faviconSectionExpanded,
         onToggle: (nextExpanded) => {
           faviconSectionExpanded = nextExpanded;
@@ -573,9 +544,14 @@ async function render(): Promise<void> {
         profile,
         states,
         palette: () => settings.palette,
-        // Through commit(), not commitAndRender(): the palette only changes while its
-        // popover is open, and a re-render would rebuild #app and tear the popover down.
+        // Through commit(), not commitAndRender(): the palette changes from inside the
+        // open panel, and a redraw there would rebuild the grid under the pointer.
         onPaletteChange: (palette) => commit({ ...settings, palette }, tab),
+        openColor,
+        onToggleColor: (key) => {
+          openColor = key;
+          void render();
+        },
         expanded: rulesSectionExpanded,
         onToggleSection: (nextExpanded) => {
           rulesSectionExpanded = nextExpanded;

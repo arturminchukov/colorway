@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { PRESET_COLORS, saveColor } from "../core/palette";
-import { palettePopover } from "./palettePopover";
+import { palettePanel } from "./palettePanel";
 
 function presets(element: HTMLElement): HTMLButtonElement[] {
   return [...element.querySelectorAll<HTMLButtonElement>(".palette-grid.preset button")];
 }
 
-describe("palettePopover", () => {
+describe("palettePanel", () => {
   it("renders every preset", () => {
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
@@ -21,7 +21,7 @@ describe("palettePopover", () => {
   });
 
   it("marks the swatch holding the current color, whatever case it is written in", () => {
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: PRESET_COLORS[2].value.toUpperCase(),
       palette: [],
       onSelect: vi.fn(),
@@ -35,37 +35,37 @@ describe("palettePopover", () => {
 
   it("reports a clicked preset and moves the mark onto it, without rebuilding the grid", () => {
     const onSelect = vi.fn();
-    const popover = palettePopover({
+    const panel = palettePanel({
       value: null,
       palette: [],
       onSelect,
       onPaletteChange: vi.fn(),
       onCustom: vi.fn(),
     });
-    const button = presets(popover.element)[3];
+    const button = presets(panel.element)[3];
     button.click();
     expect(onSelect).toHaveBeenCalledWith(PRESET_COLORS[3].value);
     expect(button.getAttribute("aria-pressed")).toBe("true");
     // The very button that was clicked is still the one in the document: rebuilding
-    // the grid under a click takes the focus with it, and lost focus closes the popover.
-    expect(presets(popover.element)[3]).toBe(button);
+    // the grid under a click takes the focus with it, and lost focus closes the panel.
+    expect(presets(panel.element)[3]).toBe(button);
   });
 
   it("follows a color set from outside", () => {
-    const popover = palettePopover({
+    const panel = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
       onPaletteChange: vi.fn(),
       onCustom: vi.fn(),
     });
-    popover.setValue(PRESET_COLORS[5].value);
-    expect(presets(popover.element)[5].getAttribute("aria-pressed")).toBe("true");
+    panel.setValue(PRESET_COLORS[5].value);
+    expect(presets(panel.element)[5].getAttribute("aria-pressed")).toBe("true");
   });
 
   it("labels a saved color by its name, and by its hex when it has none", () => {
     const palette = saveColor(saveColor([], "#ff0000", "prod"), "#00ff00", "");
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette,
       onSelect: vi.fn(),
@@ -77,7 +77,7 @@ describe("palettePopover", () => {
   });
 
   it("says so when nothing is saved yet", () => {
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
@@ -89,7 +89,7 @@ describe("palettePopover", () => {
 
   it("asks the caller for the native picker instead of opening one itself", () => {
     const onCustom = vi.fn();
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
@@ -100,23 +100,23 @@ describe("palettePopover", () => {
     expect(onCustom).toHaveBeenCalledTimes(1);
   });
 
-  it("is a dialog with a name", () => {
-    const { element } = palettePopover({
+  it("is a named group rather than a dialog: it opens in the flow and traps nothing", () => {
+    const { element } = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
       onPaletteChange: vi.fn(),
       onCustom: vi.fn(),
     });
-    expect(element.getAttribute("role")).toBe("dialog");
+    expect(element.getAttribute("role")).toBe("group");
     expect(element.getAttribute("aria-label")).toBe("Color palette");
   });
 });
 
-describe("palettePopover editing", () => {
+describe("palettePanel editing", () => {
   it("saves the current color under a typed name", () => {
     const onPaletteChange = vi.fn();
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: "#ff0000",
       palette: [],
       onSelect: vi.fn(),
@@ -138,7 +138,7 @@ describe("palettePopover editing", () => {
 
   it("saves without a name when Enter is pressed on the empty field", () => {
     const onPaletteChange = vi.fn();
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: "#00ff00",
       palette: [],
       onSelect: vi.fn(),
@@ -154,7 +154,7 @@ describe("palettePopover editing", () => {
   });
 
   it("cannot save when there is no color to save", () => {
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette: [],
       onSelect: vi.fn(),
@@ -167,7 +167,7 @@ describe("palettePopover editing", () => {
   it("renames a saved color from the edit list", () => {
     const onPaletteChange = vi.fn();
     const palette = saveColor([], "#ff0000", "prod");
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette,
       onSelect: vi.fn(),
@@ -186,7 +186,7 @@ describe("palettePopover editing", () => {
   it("removes a saved color from the edit list", () => {
     const onPaletteChange = vi.fn();
     const palette = saveColor([], "#ff0000", "prod");
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette,
       onSelect: vi.fn(),
@@ -203,7 +203,7 @@ describe("palettePopover editing", () => {
   });
 
   it("goes back to the grid when editing is done", () => {
-    const { element } = palettePopover({
+    const { element } = palettePanel({
       value: null,
       palette: saveColor([], "#ff0000", "prod"),
       onSelect: vi.fn(),

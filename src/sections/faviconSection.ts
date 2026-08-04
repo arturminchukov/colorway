@@ -56,6 +56,13 @@ function modePreview(mode: FaviconMode, profile: Profile, icon: string): HTMLEle
  * The open/closed state is owned by the caller (see `expanded`/`onToggle`), not kept
  * on the DOM element — see disclosure() for why.
  */
+/**
+ * The favicon section has exactly one color field, so its key is a constant. It shares
+ * the surface's single openColor slot with the rules section: one palette open per
+ * surface, whichever field it belongs to.
+ */
+const FAVICON_COLOR_KEY = "favicon";
+
 export function renderFaviconSection(options: {
   profile: Profile;
   /**
@@ -70,8 +77,15 @@ export function renderFaviconSection(options: {
    * it opens rather than trust what its section was rendered with — see colorField.
    */
   palette: () => SavedColor[];
-  /** The palette itself changed. Never re-renders: the popover is open while it fires. */
+  /** The palette itself changed. Never re-renders: it fires from the open panel. */
   onPaletteChange(next: SavedColor[]): void;
+  /**
+   * Which color field has its palette open, by the key handed back through
+   * onToggleColor. Owned by the surface, like the section's own expanded flag, so a
+   * re-render reopens the panel instead of destroying it.
+   */
+  openColor: string | null;
+  onToggleColor(key: string | null): void;
   onToggle(expanded: boolean): void;
   /** Fires on every keystroke/drag (input): writes the patch without forcing a re-render. */
   onPatch(patch: Partial<Profile>): void;
@@ -79,6 +93,7 @@ export function renderFaviconSection(options: {
   onPatchSettled(patch: Partial<Profile>): void;
 }): HTMLElement {
   const { profile, icon, expanded, palette, onPaletteChange, onToggle, onPatch, onPatchSettled } = options;
+  const { openColor, onToggleColor } = options;
   const siteIcon = icon || UNKNOWN_ICON;
 
   const body = document.createElement("div");
@@ -102,24 +117,22 @@ export function renderFaviconSection(options: {
   // changes nothing visible is worse than no picker: it invites the user to conclude
   // the feature is broken.
   if (profile.faviconMode !== "original") {
+    const open = openColor === FAVICON_COLOR_KEY;
     const color = colorField({
       value: profile.faviconColor,
       ariaLabel: profile.faviconMode === "initials" ? "Background color" : "Tint color",
       palette,
+      open,
+      onToggle: () => onToggleColor(open ? null : FAVICON_COLOR_KEY),
       onPreview: (next) => onPatch({ faviconColor: next }),
-      onPick: (next) => onPatchSettled({ faviconColor: next }),
       onPaletteChange,
     });
-    // Captioned like every other field but built by hand rather than by labelled(), for
-    // the reason renderColor() in rulesSection.ts spells out: the palette popover lives
-    // inside the color field, so inside a `<label>` every click on a non-interactive
-    // part of it — a group caption, the empty-palette note, the gaps — would activate
-    // the label, reach the swatch, and close the palette the user is still reading. The
-    // caption is text, and the swatch carries its own accessible name (aria-label).
-    const field = document.createElement("div");
-    field.className = "field";
-    field.append(profile.faviconMode === "initials" ? "Background" : "Tint", color);
-    body.append(field);
+    // Captioned by labelled() like every other field. The palette is a sibling of the
+    // field rather than a child of it, so a click inside the palette cannot reach the
+    // label and toggle the swatch out from under the user; clicking the caption itself
+    // opening the palette is exactly what a label is supposed to do.
+    body.append(labelled(profile.faviconMode === "initials" ? "Background" : "Tint", color.control));
+    if (color.panel) body.append(color.panel);
   }
 
   // Letters only matter in "initials" mode; showing a field that changes nothing

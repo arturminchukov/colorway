@@ -118,13 +118,28 @@ function addRuleButton(): HTMLButtonElement {
  * under `name`, and closes it again. Re-queried by index on every call: a re-render in
  * between replaces the swatch, and clicking the one it replaced would do nothing.
  */
-function saveCurrentColor(index: number, name: string): void {
+async function openPalette(index: number): Promise<HTMLElement> {
   getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button")[index].click();
-  getApp().querySelector<HTMLButtonElement>(".palette-save")!.click();
-  const input = getApp().querySelector<HTMLInputElement>(".palette-name input")!;
+  // Opening is surface state, so it takes a render — and the panel's render awaits the
+  // tab before it draws.
+  await vi.waitFor(() => expect(getApp().querySelector(".palette-panel")).not.toBeNull());
+  return getApp().querySelector<HTMLElement>(".palette-panel")!;
+}
+
+async function closePalette(): Promise<void> {
+  getApp()
+    .querySelector(".palette-panel")!
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await vi.waitFor(() => expect(getApp().querySelector(".palette-panel")).toBeNull());
+}
+
+async function saveCurrentColor(index: number, name: string): Promise<void> {
+  const panel = await openPalette(index);
+  panel.querySelector<HTMLButtonElement>(".palette-save")!.click();
+  const input = panel.querySelector<HTMLInputElement>(".palette-name input")!;
   input.value = name;
-  getApp().querySelector<HTMLButtonElement>(".palette-name button")!.click();
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  panel.querySelector<HTMLButtonElement>(".palette-name button")!.click();
+  await closePalette();
 }
 
 /** The expanded rule's "Select element" button — what actually starts the picker. */
@@ -1462,22 +1477,23 @@ describe("panel: overlapping renders", () => {
 });
 
 describe("panel: the palette", () => {
-  it("settles the color chosen in the palette once the popover closes", async () => {
+  it("saves the color chosen in the palette without waiting for the panel to close", async () => {
     const rule = { id: "r1", selector: ".header", background: null, text: null };
     await loadModule(settingsWith(profile({ rules: [rule] })));
 
     // Open the rule's editor, then its fill swatch.
     getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
     await vi.waitFor(() => expect(getApp().querySelector(".color .swatch-button")).not.toBeNull());
-    getApp().querySelector<HTMLButtonElement>(".color .swatch-button")!.click();
-    getApp().querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    const panel = await openPalette(0);
+    panel.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
 
     await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
     const written = save.mock.calls.at(-1)![0] as Settings;
     expect(written.profiles[0].rules[0].background).toBe(PRESET_COLORS[0].value);
     // Picking a preset is not saving it: the palette is untouched.
     expect(written.palette).toEqual([]);
+    // And the panel is still open, because picking a color is not what closes it.
+    expect(getApp().querySelector(".palette-panel")).not.toBeNull();
   });
 
   it("keeps both colors when the two fields of a rule are saved one after the other", async () => {
@@ -1489,8 +1505,8 @@ describe("panel: the palette", () => {
     getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
     await vi.waitFor(() => expect(getApp().querySelectorAll(".color .swatch-button")).toHaveLength(2));
 
-    saveCurrentColor(0, "prod");
-    saveCurrentColor(1, "qa");
+    await saveCurrentColor(0, "prod");
+    await saveCurrentColor(1, "qa");
 
     await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
     const written = save.mock.calls.at(-1)![0] as Settings;
@@ -1500,39 +1516,34 @@ describe("panel: the palette", () => {
     ]);
   });
 
-  it("holds its redraw back while a palette is open, and catches up once it closes", async () => {
-    // Regression guard for the actual finding: closing a palette settles the color it
-    // picked, which re-rendered #app. Clicking the neighbouring swatch does both at
-    // once — the press closes the first palette, the click opens the second — so that
-    // render landed a moment later and took the just-opened popover down with it.
+  it("moves the palette to the neighbouring field on one click, and draws the color it left behind", async () => {
+    // The case the old popover could not survive: the press closed the first palette and
+    // settled its color, which re-rendered #app a moment after the click had opened the
+    // second — taking it straight back down. With which field is open held here rather
+    // than in the DOM, that render is what puts the second palette on screen.
     const rule = { id: "r1", selector: ".header", background: null, text: null };
     await loadModule(settingsWith(profile({ rules: [rule] })));
     getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
     await vi.waitFor(() => expect(getApp().querySelectorAll(".color .swatch-button")).toHaveLength(2));
 
-    const [fill, text] = getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button");
-    fill.click();
-    getApp().querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+    const panel = await openPalette(0);
+    panel.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
 
-    // The two events a click on the neighbouring swatch really produces.
-    text.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    text.click();
+    // Re-queried, not held: the render that opens a palette rebuilds #app.
+    getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button")[1].click();
+    await vi.waitFor(() => {
+      expect(getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button")[1].getAttribute("aria-expanded")).toBe(
+        "true",
+      );
+    });
 
-    // Every chance for a deferred render to land before the assertions below.
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(getApp().querySelectorAll(".palette-popover")).toHaveLength(1);
-    expect(text.getAttribute("aria-expanded")).toBe("true");
-    expect(getApp().contains(text)).toBe(true);
-    // The settled fill color has not been drawn yet: its chip is what the redraw owes.
-    expect(getApp().querySelectorAll(".rule .colors i")).toHaveLength(0);
-
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-
-    // No palette left open, so the redraw held back above finally happens.
-    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule .colors i")).toHaveLength(1));
-    expect(getApp().querySelectorAll(".palette-popover")).toHaveLength(0);
+    // Exactly one, and it belongs to the field just clicked.
+    expect(getApp().querySelectorAll(".palette-panel")).toHaveLength(1);
+    expect(getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button")[0].getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    // Nothing is owed: the fill color picked a moment ago is already drawn as its chip.
+    expect(getApp().querySelectorAll(".rule .colors i")).toHaveLength(1);
 
     // The color edit's own debounced save is a real timer; letting it outlive the test
     // would fire it during the next one, against the shared `save` mock.
