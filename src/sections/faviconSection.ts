@@ -64,8 +64,12 @@ export function renderFaviconSection(options: {
    */
   icon?: string;
   expanded: boolean;
-  /** Colors the user kept, shared by every field on both surfaces. */
-  palette: SavedColor[];
+  /**
+   * Colors the user kept, shared by every field on both surfaces. A getter, not the
+   * array: nothing re-renders on a palette edit, so a field must read the palette when
+   * it opens rather than trust what its section was rendered with — see colorField.
+   */
+  palette: () => SavedColor[];
   /** The palette itself changed. Never re-renders: the popover is open while it fires. */
   onPaletteChange(next: SavedColor[]): void;
   onToggle(expanded: boolean): void;
@@ -106,7 +110,16 @@ export function renderFaviconSection(options: {
       onPick: (next) => onPatchSettled({ faviconColor: next }),
       onPaletteChange,
     });
-    body.append(labelled(profile.faviconMode === "initials" ? "Background" : "Tint", color));
+    // Captioned like every other field but built by hand rather than by labelled(), for
+    // the reason renderColor() in rulesSection.ts spells out: the palette popover lives
+    // inside the color field, so inside a `<label>` every click on a non-interactive
+    // part of it — a group caption, the empty-palette note, the gaps — would activate
+    // the label, reach the swatch, and close the palette the user is still reading. The
+    // caption is text, and the swatch carries its own accessible name (aria-label).
+    const field = document.createElement("div");
+    field.className = "field";
+    field.append(profile.faviconMode === "initials" ? "Background" : "Tint", color);
+    body.append(field);
   }
 
   // Letters only matter in "initials" mode; showing a field that changes nothing

@@ -279,4 +279,38 @@ describe("options: the palette", () => {
     expect(written.profiles[0].rules[0].background).toBe("#ff0000");
     expect(permissionsRequest).not.toHaveBeenCalled();
   });
+
+  it("holds the sections' redraw back while a palette is open, and catches up once it closes", async () => {
+    // Regression guard for the actual finding: closing a palette settles the color it
+    // picked, and renderSections() is synchronous — so the sections were rebuilt from
+    // inside the very pointerdown that closed the palette. The button the press was
+    // aimed at (here the neighbouring swatch) was gone before its click could arrive.
+    const rule = createRule(".header");
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+    const card = cards()[0];
+    buttonNamed(card, ".header").click();
+
+    const [fill, text] = card.querySelectorAll<HTMLButtonElement>(".color .swatch-button");
+    fill.click();
+    card.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+
+    // The two events a click on the neighbouring swatch really produces: the press
+    // closes the fill palette (settling its color), the click opens the text one.
+    text.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    text.click();
+
+    // Exactly one palette, and it is the one the user just aimed at — still the card's
+    // own element, not a swatch orphaned by a rebuild.
+    expect(card.querySelectorAll(".palette-popover")).toHaveLength(1);
+    expect(text.getAttribute("aria-expanded")).toBe("true");
+    expect(card.contains(text)).toBe(true);
+    // The settled fill color has not been drawn yet: its chip is what the redraw owes.
+    expect(card.querySelectorAll(".rule .colors i")).toHaveLength(0);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    // No palette left open, so the redraw held back above finally happens.
+    expect(card.querySelectorAll(".palette-popover")).toHaveLength(0);
+    expect(card.querySelectorAll(".rule .colors i")).toHaveLength(1);
+  });
 });

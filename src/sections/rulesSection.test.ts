@@ -13,7 +13,7 @@ function baseOptions(overrides: Partial<Parameters<typeof renderRulesSection>[0]
     profile: profileWithRules(),
     states: new Map(),
     expanded: true,
-    palette: [],
+    palette: () => [],
     onPaletteChange: vi.fn(),
     onToggleSection: vi.fn(),
     expandedId: null,
@@ -338,7 +338,7 @@ describe("renderRulesSection", () => {
       const wrap = renderRulesSection({
         profile,
         expanded: true,
-        palette: saveColor([], "#00ff00", "qa"),
+        palette: () => saveColor([], "#00ff00", "qa"),
         onPaletteChange: vi.fn(),
         onToggleSection: vi.fn(),
         expandedId: "r1",

@@ -1,16 +1,17 @@
 import type { SavedColor } from "../core/palette";
 import { patternsToRevoke } from "../core/permissions";
-import { createProfile, createRule, type Profile, type Settings } from "../core/profile";
+import { createProfile, createRule, DEFAULT_SETTINGS, type Profile, type Settings } from "../core/profile";
 import { patchRule, withoutRule } from "../core/ruleEdits";
 import { renderFaviconSection } from "../sections/faviconSection";
 import { renderRulesSection } from "../sections/rulesSection";
 import { browser, settingsRepo } from "../shared/browser";
+import { isPaletteOpen, onPaletteClosed } from "../shared/colorField";
 import { checkbox, labelled, textInput } from "../shared/controls";
 import { SETTINGS_KEY } from "../storage/settingsRepo";
 
 const app = document.getElementById("app")!;
 
-let settings: Settings = { version: 4, profiles: [], palette: [] };
+let settings: Settings = DEFAULT_SETTINGS;
 
 // Cards the user has typed into since the last render(). The storage listener below,
 // and the add/delete handlers in render(), all refuse to rebuild while this is
@@ -20,6 +21,25 @@ const dirtyProfileIds = new Set<string>();
 // Settings changed elsewhere while a card was dirty, so the page was left standing
 // with stale values in every other card and still owes the user a redraw.
 let pendingExternalUpdate = false;
+
+// Sections owed a redraw once no palette popover is left open anywhere. The popover
+// lives inside the color field that opened it, so redrawing its sections destroys it
+// mid-use — and a settled color edit is exactly what a closing palette produces, so
+// this is the ordinary path rather than an edge case. Held per card, since each card
+// draws (and redraws) its own sections.
+const paletteRedraws = new Set<() => void>();
+
+// Registered once, at load, not per card: the last palette in the document has closed,
+// so whatever was held back can now be drawn.
+onPaletteClosed(() => {
+  // A close can be announced with the next field's palette already open in its place —
+  // a pointer-driven close is announced by the click that follows it, and that click is
+  // often the one that opened the next palette. Still not a moment to rebuild.
+  if (isPaletteOpen()) return;
+  const owed = [...paletteRedraws];
+  paletteRedraws.clear();
+  for (const redraw of owed) redraw();
+});
 
 // Page-level status for actions (add/remove) that have no surviving per-card element
 // to report into once render() rebuilds the list, and for notices about settings
@@ -154,7 +174,7 @@ function renderCard(profile: Profile): HTMLElement {
     sections.replaceChildren(
       renderFaviconSection({
         profile: draft,
-        palette: settings.palette,
+        palette: () => settings.palette,
         onPaletteChange: savePalette,
         expanded: faviconExpanded,
         onToggle: (next) => {
@@ -168,7 +188,7 @@ function renderCard(profile: Profile): HTMLElement {
         profile: draft,
         // No `states` and no `picker`: this page has no tab to ask about a rule, and
         // no page to pick an element from — selectors are typed here instead.
-        palette: settings.palette,
+        palette: () => settings.palette,
         onPaletteChange: savePalette,
         expanded: rulesExpanded,
         onToggleSection: (next) => {
@@ -196,6 +216,19 @@ function renderCard(profile: Profile): HTMLElement {
   }
 
   /**
+   * The redraw a settled edit asks for, held back while a palette popover is open
+   * anywhere — see paletteRedraws above, which is also what lets it happen afterwards.
+   */
+  function redrawSections(): void {
+    if (isPaletteOpen()) {
+      paletteRedraws.add(renderSections);
+      return;
+    }
+    paletteRedraws.delete(renderSections);
+    renderSections();
+  }
+
+  /**
    * `settled` mirrors the panel's commit/commitAndRender split: a live color drag only
    * records the value, while an edit that has settled (a change event, a button click)
    * also redraws the sections so what they show catches up.
@@ -207,7 +240,7 @@ function renderCard(profile: Profile): HTMLElement {
     // button (a mode, a delete, "+ Add rule"), so the card marks itself dirty here
     // rather than relying on the listeners above.
     markDirty();
-    if (settled) renderSections();
+    if (settled) redrawSections();
   }
 
   renderSections();
@@ -410,9 +443,11 @@ function renderCard(profile: Profile): HTMLElement {
 
 function render(): void {
   // Every card is rebuilt from `settings` here, so nothing is left half-edited
-  // and no external change stays owed to the user.
+  // and no external change stays owed to the user. A redraw owed to a card's sections
+  // goes with it: the card that asked for it is about to stop existing.
   dirtyProfileIds.clear();
   pendingExternalUpdate = false;
+  paletteRedraws.clear();
 
   app.replaceChildren();
 

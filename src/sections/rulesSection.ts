@@ -41,7 +41,7 @@ function renderColor(
   name: string,
   glyph: SVGElement,
   value: string | null,
-  palette: SavedColor[],
+  palette: () => SavedColor[],
   onChange: (next: string | null) => void,
   onSettled: (next: string | null) => void,
   onPaletteChange: (next: SavedColor[]) => void,
@@ -82,7 +82,7 @@ function renderColor(
 /** The whole color block of a rule: fill and text, grouped and captioned as one. */
 function renderColors(
   rule: ColorRule,
-  palette: SavedColor[],
+  palette: () => SavedColor[],
   onPatch: (patch: Partial<ColorRule>) => void,
   onPatchSettled: (patch: Partial<ColorRule>) => void,
   onPaletteChange: (next: SavedColor[]) => void,
@@ -144,8 +144,12 @@ export function renderRulesSection(options: {
   states?: Map<string, RuleState>;
   /** Whether the whole section is open; owned by the caller, like the favicon section's. */
   expanded: boolean;
-  /** Colors the user kept, shared by every field on both surfaces. */
-  palette: SavedColor[];
+  /**
+   * Colors the user kept, shared by every field on both surfaces. A getter, not the
+   * array: nothing re-renders on a palette edit, so a field must read the palette when
+   * it opens rather than trust what its section was rendered with — see colorField.
+   */
+  palette: () => SavedColor[];
   /** The palette itself changed. Never re-renders: the popover is open while it fires. */
   onPaletteChange(next: SavedColor[]): void;
   onToggleSection(expanded: boolean): void;

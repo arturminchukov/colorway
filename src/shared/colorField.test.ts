@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PRESET_COLORS, saveColor } from "../core/palette";
-import { colorField } from "./colorField";
+import { PRESET_COLORS, saveColor, type SavedColor } from "../core/palette";
+import { colorField, isPaletteOpen, onPaletteClosed } from "./colorField";
 
 function mount(overrides: Partial<Parameters<typeof colorField>[0]> = {}): {
   root: HTMLElement;
@@ -15,7 +15,7 @@ function mount(overrides: Partial<Parameters<typeof colorField>[0]> = {}): {
   const root = colorField({
     value: "#ff0000",
     ariaLabel: "fill color",
-    palette: [],
+    palette: () => [],
     onPreview,
     onPick,
     onPaletteChange,
@@ -27,6 +27,16 @@ function mount(overrides: Partial<Parameters<typeof colorField>[0]> = {}): {
 
 function swatch(root: HTMLElement): HTMLButtonElement {
   return root.querySelector<HTMLButtonElement>(".swatch-button")!;
+}
+
+/** Opens the field's palette, saves the color it currently shows under `name`, closes it. */
+function saveCurrent(root: HTMLElement, name: string): void {
+  swatch(root).click();
+  root.querySelector<HTMLButtonElement>(".palette-save")!.click();
+  const input = root.querySelector<HTMLInputElement>(".palette-name input")!;
+  input.value = name;
+  root.querySelector<HTMLButtonElement>(".palette-name button")!.click();
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 }
 
 beforeEach(() => {
@@ -93,11 +103,96 @@ describe("colorField", () => {
 
   it("passes palette edits out untouched", () => {
     const palette = saveColor([], "#ff0000", "prod");
-    const { root, onPaletteChange } = mount({ palette });
+    const { root, onPaletteChange } = mount({ palette: () => palette });
     swatch(root).click();
     root.querySelector<HTMLButtonElement>(".palette-edit")!.click();
     root.querySelector<HTMLButtonElement>(".palette-row .remove")!.click();
     expect(onPaletteChange).toHaveBeenCalledWith([]);
+  });
+
+  it("saves from two neighbouring fields in a row without either dropping the other's color", () => {
+    // Regression guard for the actual finding: the field used to capture the palette
+    // when it was built, and only its own popover ever updated that copy. A palette
+    // edit deliberately re-renders nothing (that would tear the open popover down), so
+    // the field next to it kept the palette as it was at render time and saved onto it
+    // — silently forgetting every color saved in the meantime.
+    let palette: SavedColor[] = [];
+    const keep = (next: SavedColor[]): void => {
+      palette = next;
+    };
+    const fill = mount({ value: "#ff0000", palette: () => palette, onPaletteChange: keep });
+    const text = mount({ value: "#00ff00", palette: () => palette, onPaletteChange: keep });
+
+    saveCurrent(fill.root, "prod");
+    saveCurrent(text.root, "qa");
+
+    expect(palette.map((color) => [color.value, color.name])).toEqual([
+      ["#ff0000", "prod"],
+      ["#00ff00", "qa"],
+    ]);
+  });
+
+  it("stays silent when the color picked is the one the field already showed", () => {
+    // Re-picking the current color is not an edit: settling it would cost the surface a
+    // commit and a full re-render, which is also one more chance to tear a popover down.
+    const { root, onPreview, onPick } = mount({ value: PRESET_COLORS[0].value });
+    swatch(root).click();
+    root.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(onPreview).toHaveBeenCalledWith(PRESET_COLORS[0].value);
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("still reports a palette as open while the closing one settles its color", () => {
+    // What lets a surface tell "this settled edit came out of a palette" apart from any
+    // other one, and hold its redraw back instead of rebuilding the field mid-close.
+    const openWhileSettling: boolean[] = [];
+    const { root } = mount({ onPick: () => openWhileSettling.push(isPaletteOpen()) });
+    swatch(root).click();
+    root.querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(openWhileSettling).toEqual([true]);
+    expect(isPaletteOpen()).toBe(false);
+  });
+
+  it("announces a pointer-driven close only once the click that caused it has landed", () => {
+    // The press that closes a palette is on its way to a click. A surface that caught up
+    // on its held-back redraw in between would remove the button under the pointer, and
+    // that click — the ↺ reset, "+ Add rule", the next field's swatch — never arrives.
+    const announced = vi.fn();
+    onPaletteClosed(announced);
+    const { root } = mount();
+    swatch(root).click();
+
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    expect(root.querySelector(".palette-popover")).toBeNull();
+    expect(announced).not.toHaveBeenCalled();
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(announced).toHaveBeenCalled();
+  });
+
+  it("announces nothing when one field hands the palette straight to another", () => {
+    // The document is never really left without a palette here, so a surface must not
+    // redraw between the two: the popover being built would land in a dead DOM.
+    const announced = vi.fn();
+    onPaletteClosed(announced);
+    const first = mount();
+    const second = mount();
+
+    swatch(first.root).click();
+    swatch(second.root).click();
+
+    expect(announced).not.toHaveBeenCalled();
+    expect(isPaletteOpen()).toBe(true);
+    expect(second.root.querySelector(".palette-popover")).not.toBeNull();
+
+    // Left closed: the open palette is module-level state, and a test that walks away
+    // from one hands the next test a document that already has a palette in it.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(isPaletteOpen()).toBe(false);
   });
 
   it("keeps input and change events from escaping the field", () => {

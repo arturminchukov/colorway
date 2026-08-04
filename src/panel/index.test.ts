@@ -113,6 +113,20 @@ function addRuleButton(): HTMLButtonElement {
   return getApp().querySelector<HTMLButtonElement>("button.primary")!;
 }
 
+/**
+ * Opens the palette of the expanded rule's nth color field, saves the color it shows
+ * under `name`, and closes it again. Re-queried by index on every call: a re-render in
+ * between replaces the swatch, and clicking the one it replaced would do nothing.
+ */
+function saveCurrentColor(index: number, name: string): void {
+  getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button")[index].click();
+  getApp().querySelector<HTMLButtonElement>(".palette-save")!.click();
+  const input = getApp().querySelector<HTMLInputElement>(".palette-name input")!;
+  input.value = name;
+  getApp().querySelector<HTMLButtonElement>(".palette-name button")!.click();
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+}
+
 /** The expanded rule's "Select element" button — what actually starts the picker. */
 function pickButton(): HTMLButtonElement {
   return getApp().querySelector<HTMLButtonElement>("button.pick")!;
@@ -1464,5 +1478,64 @@ describe("panel: the palette", () => {
     expect(written.profiles[0].rules[0].background).toBe(PRESET_COLORS[0].value);
     // Picking a preset is not saving it: the palette is untouched.
     expect(written.palette).toEqual([]);
+  });
+
+  it("keeps both colors when the two fields of a rule are saved one after the other", async () => {
+    // Regression guard for the actual finding: a palette edit deliberately re-renders
+    // nothing, so the second field was still holding the palette it was rendered with —
+    // empty — and saving from it wrote a one-color palette over the first field's save.
+    const rule = { id: "r1", selector: ".header", background: "#ff0000", text: "#00ff00" };
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+    getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".color .swatch-button")).toHaveLength(2));
+
+    saveCurrentColor(0, "prod");
+    saveCurrentColor(1, "qa");
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
+    const written = save.mock.calls.at(-1)![0] as Settings;
+    expect(written.palette.map((color) => [color.value, color.name])).toEqual([
+      ["#ff0000", "prod"],
+      ["#00ff00", "qa"],
+    ]);
+  });
+
+  it("holds its redraw back while a palette is open, and catches up once it closes", async () => {
+    // Regression guard for the actual finding: closing a palette settles the color it
+    // picked, which re-rendered #app. Clicking the neighbouring swatch does both at
+    // once — the press closes the first palette, the click opens the second — so that
+    // render landed a moment later and took the just-opened popover down with it.
+    const rule = { id: "r1", selector: ".header", background: null, text: null };
+    await loadModule(settingsWith(profile({ rules: [rule] })));
+    getApp().querySelector<HTMLButtonElement>(".rule .link")!.click();
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".color .swatch-button")).toHaveLength(2));
+
+    const [fill, text] = getApp().querySelectorAll<HTMLButtonElement>(".color .swatch-button");
+    fill.click();
+    getApp().querySelector<HTMLButtonElement>(".palette-grid.preset button")!.click();
+
+    // The two events a click on the neighbouring swatch really produces.
+    text.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    text.click();
+
+    // Every chance for a deferred render to land before the assertions below.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getApp().querySelectorAll(".palette-popover")).toHaveLength(1);
+    expect(text.getAttribute("aria-expanded")).toBe("true");
+    expect(getApp().contains(text)).toBe(true);
+    // The settled fill color has not been drawn yet: its chip is what the redraw owes.
+    expect(getApp().querySelectorAll(".rule .colors i")).toHaveLength(0);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    // No palette left open, so the redraw held back above finally happens.
+    await vi.waitFor(() => expect(getApp().querySelectorAll(".rule .colors i")).toHaveLength(1));
+    expect(getApp().querySelectorAll(".palette-popover")).toHaveLength(0);
+
+    // The color edit's own debounced save is a real timer; letting it outlive the test
+    // would fire it during the next one, against the shared `save` mock.
+    await vi.waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 2000 });
   });
 });
