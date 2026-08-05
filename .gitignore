@@ -6,8 +6,11 @@ web-ext-artifacts/
 !.yarn/patches
 !.yarn/releases
 .DS_Store
+.idea/
 .superpowers/
 docs/superpowers/
+# Regenerated from make-tiles.py on demand; only the rendered PNGs are kept.
+docs/store-assets/tiles/
 # Local only: reads a per-repo GH_TOKEN from a file outside the repo (see .envrc).
 .envrc
 *.token
