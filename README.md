@@ -12,10 +12,23 @@ A profile is bound to URL patterns and holds:
 Rules are added by picking: hover an element the way you would in devtools, click it, and the rule
 appears in the window with its color controls ready.
 
+## Screenshots
+
+Two instances of the same Grafana dashboard, told apart by Colorway: production in red, staging in
+green, each with its own favicon initials and tab-title prefix.
+
+| | |
+| --- | --- |
+| ![The window open on a production dashboard](docs/store-assets/screenshot-1-panel-prod-1280x800.png) | ![The picker outlining an element](docs/store-assets/screenshot-2-picker-1280x800.png) |
+| The window open on a site: both rules painting, favicon and prefix set | The picker outlining the element under the cursor with its tag and size |
+| ![The palette expanded under a rule's fill color](docs/store-assets/screenshot-3-palette-1280x800.png) | ![The options page with two profiles](docs/store-assets/screenshot-4-options-1280x800.png) |
+| Presets and saved colors, shared by every profile and every color field | The options page: the same sections as the window, plus the URL patterns |
+
 ## Requirements
 
 - Node 20.19+ (the floor comes from Vite's and ESLint's `engines`), Yarn 4 — CI builds on Node 24
-- Chrome 102+ or Firefox 128 ESR+
+- Chrome 102+ or Firefox 140+ (the floor is set by `data_collection_permissions`, which older
+  Firefox ignores rather than honours — see `scripts/manifest.mjs`)
 
 ## Build
 
@@ -142,6 +155,11 @@ Build ready-to-upload zips locally:
 ```bash
 yarn package   # -> release/colorway-{chrome,firefox}-<version>.zip
 ```
+
+The graphic assets both listings ask for live in [`docs/store-assets/`](docs/store-assets): the four
+1280×800 screenshots above, the 440×280 small promo tile and the 1400×560 marquee. The two tiles are
+generated from the extension's own tokens and icon by `docs/store-assets/make-tiles.py`, which writes
+exact-size HTML pages to screenshot — edit that script rather than the PNGs.
 
 **Manual (simplest):** upload `release/…-chrome-*.zip` in the
 [Chrome Web Store dashboard](https://chrome.google.com/webstore/devconsole) (one-time $5 fee) and

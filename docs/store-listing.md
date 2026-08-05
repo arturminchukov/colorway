@@ -70,12 +70,26 @@ own extensions page. Chrome's limit is **132 characters**.
 
 ### Graphic assets
 
-- Screenshots, 1280×800 (at least one, five allowed). Worth showing:
-  1. The on-page window open on a site, with a rule expanded and its colors set.
-  2. The picker outlining an element, with the tag-and-size label visible.
-  3. A tab strip where two instances of the same site are told apart by favicon and title prefix.
-  4. The options page with two profiles and their URL patterns.
-- Small promo tile 440×280 (optional, but the listing looks unfinished without it).
+Ready to upload, in [`store-assets/`](store-assets):
+
+| File | Slot |
+| --- | --- |
+| `screenshot-1-panel-prod-1280x800.png` | Screenshot — the window open on a production dashboard |
+| `screenshot-2-picker-1280x800.png` | Screenshot — the picker outlining an element |
+| `screenshot-3-palette-1280x800.png` | Screenshot — presets and saved colors |
+| `screenshot-4-options-1280x800.png` | Screenshot — the options page with two profiles |
+| `promo-small-tile-440x280.png` | Small promo tile |
+| `promo-marquee-1400x560.png` | Marquee promo tile |
+
+The screenshots are of the real extension driven against two local Grafana instances, one painted as
+production and one as staging. The two tiles are branding graphics rather than captures:
+`store-assets/make-tiles.py` builds them from `public/tokens.css` and `public/icons/icon-128.png` as
+exact-size HTML pages, which are then screenshotted — edit the script, not the PNGs.
+
+Still missing: a shot of the tab strip where two instances are told apart by favicon and title
+prefix. It cannot be captured through the automation used for the others (a headless screenshot holds
+the page viewport only, never the browser's own chrome), so it needs a system screenshot of a real
+window.
 
 ### Privacy tab
 
@@ -150,6 +164,6 @@ Paste the text of [`PRIVACY.md`](../PRIVACY.md).
 
 - [ ] `yarn package` and `yarn package:source` produce the archives for the tagged version.
 - [ ] The version in `package.json` is the one being submitted (AMO refuses a version it has seen).
-- [ ] Screenshots reflect the current UI.
+- [ ] Screenshots in `store-assets/` reflect the current UI.
 - [ ] The privacy policy URL resolves publicly.
 - [ ] The copy above matches what is actually in the dashboards.
