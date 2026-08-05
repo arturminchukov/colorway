@@ -27,8 +27,7 @@ function hardenStyle(element: HTMLElement): void {
   }
 }
 
-const TEMPLATE = `
-<style>
+const STYLES = `
   .panel {
     width: ${PANEL_WIDTH}px;
     height: min(70vh, 560px);
@@ -90,15 +89,43 @@ const TEMPLATE = `
     width: 100%;
     min-height: 0;
   }
-</style>
-<div class="panel">
-  <div class="header">
-    <span class="name">Colorway</span>
-    <button type="button" class="close" aria-label="Close">×</button>
-  </div>
-  <iframe title="Colorway"></iframe>
-</div>
 `;
+
+/**
+ * Builds the window's chrome node by node instead of from one HTML string. The markup
+ * is fixed and holds nothing from the page, but an innerHTML assignment is what AMO's
+ * linter flags regardless ("Unsafe assignment to innerHTML"), and the tree is four
+ * elements — cheaper to build than to justify.
+ */
+function buildChrome(): DocumentFragment {
+  const style = document.createElement("style");
+  style.textContent = STYLES;
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = "Colorway";
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "close";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "×";
+
+  const header = document.createElement("div");
+  header.className = "header";
+  header.append(name, close);
+
+  const iframe = document.createElement("iframe");
+  iframe.title = "Colorway";
+
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  panel.append(header, iframe);
+
+  const fragment = document.createDocumentFragment();
+  fragment.append(style, panel);
+  return fragment;
+}
 
 /**
  * The frame runs in an ordinary page, which has no notion of its own tab id — that
@@ -161,7 +188,7 @@ async function open(): Promise<() => Promise<void>> {
   hardenStyle(container);
 
   const shadow = container.attachShadow({ mode: "open" });
-  shadow.innerHTML = TEMPLATE;
+  shadow.append(buildChrome());
 
   const header = shadow.querySelector<HTMLElement>(".header")!;
   const closeButton = shadow.querySelector<HTMLButtonElement>(".close")!;

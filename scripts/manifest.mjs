@@ -41,11 +41,20 @@ const overrides = {
     browser_specific_settings: {
       gecko: {
         id: "colorway@arturminchukov",
-        strict_min_version: "128.0",
+        // 140 is where data_collection_permissions below became readable, and the floor
+        // is set to match it rather than to the oldest Firefox the code would run on:
+        // an ESR that ignores the key is an ESR that cannot honour the consent it
+        // declares. Nothing is lost by it — 128 ESR is end-of-life, and the live ESR
+        // branches (140, 153) are both at or above this floor.
+        strict_min_version: "140.0",
         // Required by AMO for new extensions. Nothing is collected: every profile stays
-        // in browser.storage.local on the device (see PRIVACY.md). The key itself is read
-        // from Firefox 140 on, so web-ext lint warns it is newer than the 128.0 floor —
-        // a warning, not an error: older Firefox ignores the key and installs as before.
+        // in browser.storage.local on the device (see PRIVACY.md).
+        //
+        // web-ext lint still warns that Firefox for Android only learned this key in
+        // 142. That warning is noise here: with no gecko_android sub-key the add-on is
+        // listed for desktop Firefox only, so the Android floor it computes applies to
+        // a platform this extension is never installed on. Adding gecko_android to
+        // silence it would opt into Android — the opposite of what the omission means.
         data_collection_permissions: { required: ["none"] },
       },
     },
