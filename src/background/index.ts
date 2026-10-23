@@ -99,8 +99,8 @@ browser.runtime.onMessage.addListener(
     const tabId = sender.tab?.id;
     if (tabId === undefined) return undefined;
 
-    return browser.runtime
-      .sendMessage({
+    return browser.tabs
+      .sendMessage(tabId, {
         type: "colorway:picker-result",
         tabId,
         tabUrl: sender.tab?.url,

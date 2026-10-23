@@ -308,7 +308,11 @@ describe("panelFrame: the window gets a definite height", () => {
 describe("panelFrame: dimming while the user picks", () => {
   /** The picking-message listener the frame registered on runtime.onMessage. */
   function pickingListener(): (message: unknown) => undefined {
-    return addMessageListener.mock.calls.at(-1)![0] as (message: unknown) => undefined;
+    return (message) => {
+      for (const [listener] of addMessageListener.mock.calls) {
+        (listener as (value: unknown) => undefined)(message);
+      }
+    };
   }
 
   it("fades the window and lets clicks through while its own tab is picking, then restores it", async () => {

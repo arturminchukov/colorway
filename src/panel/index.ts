@@ -700,8 +700,8 @@ type PickerResultMessage = {
 // The background relays the picker's result because the picker runs as a content
 // script while this panel is a web-accessible iframe. The relay carries the tab
 // identity explicitly; the panel must not depend on sender.tab in its own context.
-browser.runtime.onMessage.addListener((message: unknown): undefined => {
-  const result = message as PickerResultMessage;
+window.onmessage = (event: MessageEvent<unknown>): undefined => {
+  const result = event.data as PickerResultMessage;
   if (result?.type !== "colorway:picker-result") return undefined;
 
   const tabId = result.tabId;
@@ -758,7 +758,7 @@ browser.runtime.onMessage.addListener((message: unknown): undefined => {
   // consistent with every other button-initiated change in this file.
   commitAndRender(next, { id: tabId, url: tabUrl });
   return undefined;
-});
+};
 
 
 type FlushRequest = { type: "colorway:flush"; tabId: number };

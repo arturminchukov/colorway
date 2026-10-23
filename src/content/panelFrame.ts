@@ -267,10 +267,19 @@ async function open(): Promise<() => Promise<void>> {
     return undefined;
   }
 
+  function onPickerResultMessage(message: unknown): undefined {
+    const result = message as { type?: string; tabId?: number };
+    if (result?.type !== "colorway:picker-result") return undefined;
+    if (resolvedTabId === undefined || result.tabId !== resolvedTabId) return undefined;
+    iframe.contentWindow?.postMessage(message, "*");
+    return undefined;
+  }
+
   async function stop(): Promise<void> {
     document.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerup", onPointerUp);
     browser.runtime.onMessage.removeListener(onPickingMessage);
+    browser.runtime.onMessage.removeListener(onPickerResultMessage);
     await requestFlush(resolvedTabId);
     container.remove();
     window.__colorwayPanelStop = undefined;
@@ -280,6 +289,7 @@ async function open(): Promise<() => Promise<void>> {
   document.addEventListener("pointermove", onPointerMove);
   document.addEventListener("pointerup", onPointerUp);
   browser.runtime.onMessage.addListener(onPickingMessage);
+  browser.runtime.onMessage.addListener(onPickerResultMessage);
   closeButton.addEventListener("click", stop);
 
   document.documentElement.append(container);

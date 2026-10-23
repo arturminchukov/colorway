@@ -79,13 +79,16 @@ describe("panel in a web-accessible extension iframe", () => {
     await import("./index");
     await vi.waitFor(() => expect(document.getElementById("app")?.textContent).toContain("Content rules"));
 
-    const pickerListener = addRuntimeListener.mock.calls[1][0] as (message: unknown) => undefined;
-    pickerListener({
-      type: "colorway:picker-result",
-      tabId: 7,
-      tabUrl: "https://example.com",
-      selector: "#main",
-    });
+    window.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "colorway:picker-result",
+          tabId: 7,
+          tabUrl: "https://example.com",
+          selector: "#main",
+        },
+      }),
+    );
 
     await vi.waitFor(() =>
       expect(document.querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe("#main"),

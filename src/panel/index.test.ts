@@ -94,18 +94,21 @@ function updatedListener(): (tabId: number, changeInfo: unknown, tab: unknown) =
 /** Only the `tab` shape the picker-result relay adapter reads. */
 type FakeSender = { tab?: { id?: number; url?: string } };
 
-/** runtime.onMessage's listener registered by the panel for the picker's result relay. */
+/** The panel receives picker results from panelFrame.ts through window.postMessage. */
 function pickedListener(): (message: unknown, sender?: FakeSender) => undefined {
-  const listener = runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown) => undefined;
   return (message, sender) => {
     const picked = message as { type?: string; selector?: string };
-    listener({
-      type: "colorway:picker-result",
-      tabId: sender?.tab?.id,
-      tabUrl: sender?.tab?.url,
-      selector: picked.selector,
-      cancelled: picked.type === "colorway:pick-cancelled",
-    });
+    window.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "colorway:picker-result",
+          tabId: sender?.tab?.id,
+          tabUrl: sender?.tab?.url,
+          selector: picked.selector,
+          cancelled: picked.type === "colorway:pick-cancelled",
+        },
+      }),
+    );
   };
 }
 
@@ -116,7 +119,7 @@ function pickedListener(): (message: unknown, sender?: FakeSender) => undefined 
  * what tells them apart.
  */
 function flushListener(): (message: unknown) => Promise<undefined> | undefined {
-  return runtimeOnMessageAddListener.mock.calls[2][0] as (message: unknown) => Promise<undefined> | undefined;
+  return runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown) => Promise<undefined> | undefined;
 }
 
 /** The rules section's "+ Add rule" button. */
