@@ -84,6 +84,33 @@ browser.runtime.onMessage.addListener((message: unknown): Promise<unknown> | und
   return undefined;
 });
 
+type PickerMessage = { type: "colorway:picked" | "colorway:pick-cancelled"; selector?: string };
+
+/**
+ * Content-script messages go to the background page. Relay the picker result to
+ * extension pages explicitly because the panel is a web-accessible iframe and must
+ * not depend on receiving a content-script message directly.
+ */
+browser.runtime.onMessage.addListener(
+  (message: unknown, sender: Runtime.MessageSender): Promise<undefined> | undefined => {
+    const picker = message as PickerMessage;
+    if (picker?.type !== "colorway:picked" && picker?.type !== "colorway:pick-cancelled") return undefined;
+
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return undefined;
+
+    return browser.runtime
+      .sendMessage({
+        type: "colorway:picker-result",
+        tabId,
+        tabUrl: sender.tab?.url,
+        selector: picker.selector,
+        cancelled: picker.type === "colorway:pick-cancelled",
+      })
+      .then(() => undefined, () => undefined);
+  },
+);
+
 type StartPickerRequest = { type: "colorway:start-picker"; tabId: number };
 
 /**

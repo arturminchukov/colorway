@@ -1,4 +1,3 @@
-import type { Runtime } from "webextension-polyfill";
 import type { PreviewMessage, RuleState, StatusResponse } from "../content/index";
 import { currentProfileForUrl, pickProfile } from "../core/matcher";
 import { addRuleForUrl, createProfileForUrl, createRule, DEFAULT_SETTINGS, type Settings } from "../core/profile";
@@ -690,27 +689,24 @@ browser.runtime.onMessage.addListener((message: unknown): undefined => {
   return undefined;
 });
 
-type PickedMessage = { type: "colorway:picked"; selector: string };
+type PickerResultMessage = {
+  type: "colorway:picker-result";
+  tabId: number;
+  tabUrl?: string;
+  selector?: string;
+  cancelled?: boolean;
+};
 
-// The picker (a separately injected script) sends this once, on click, then stops.
-// This listener never answers back, and browser.runtime.onMessage also delivers
-// messages meant for other listeners (e.g. the content script's own status
-// request), so anything that is not our own message type must be ignored and must
-// return undefined synchronously — claiming the response channel here would starve
-// whichever listener the message was actually meant for.
-browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.MessageSender): undefined => {
-  const picked = message as PickedMessage;
-  const cancelled = (message as { type?: string })?.type === "colorway:pick-cancelled";
-  if (picked?.type !== "colorway:picked" && !cancelled) return undefined;
+// The background relays the picker's result because the picker runs as a content
+// script while this panel is a web-accessible iframe. The relay carries the tab
+// identity explicitly; the panel must not depend on sender.tab in its own context.
+browser.runtime.onMessage.addListener((message: unknown): undefined => {
+  const result = message as PickerResultMessage;
+  if (result?.type !== "colorway:picker-result") return undefined;
 
-  // sender.tab identifies the tab the picker actually ran in, synchronously and with
-  // no async currentTab() round trip involved — a plain, direct fact about where the
-  // message came from, rather than something this window has to resolve for itself.
-  // No usable sender tab means there is nothing safe to attach the rule to, so do
-  // nothing rather than guessing.
-  const tabId = sender.tab?.id;
-  const tabUrl = sender.tab?.url;
-  if (tabId === undefined || !tabUrl) return undefined;
+  const tabId = result.tabId;
+  const tabUrl = result.tabUrl;
+  if (tabUrl === undefined) return undefined;
 
   // runtime.sendMessage broadcasts to every open window, not just this one: with the
   // window open on two tabs at once — the extension's whole reason to exist — a pick
@@ -724,7 +720,7 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
 
   // Escape: the picker stopped without reporting a selector, so the rule that was
   // waiting for one simply keeps the selector it had. Nothing to write.
-  if (cancelled) {
+  if (result.cancelled) {
     pickTargetRuleId = null;
     // Back to the button: the rule is no longer waiting for anything.
     void render();
@@ -740,10 +736,12 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   // creating a rule covers a pick whose rule is gone — the window was closed and
   // reopened, or the rule deleted, mid-pick — because dropping the user's click on
   // the floor after they went to the trouble of aiming it is worse than an extra rule.
+  if (!result.selector) return undefined;
+
   const next =
     waiting && target
-      ? updateRule(settings, target.id, waiting, { selector: picked.selector })
-      : addRuleForUrl(settings, tabUrl, createRule(picked.selector));
+      ? updateRule(settings, target.id, waiting, { selector: result.selector })
+      : addRuleForUrl(settings, tabUrl, createRule(result.selector));
 
   // Open the rule the selector landed in: its colors are the reason the user picked.
   // Looked up the same way addRuleForUrl chose its target, so this always finds the

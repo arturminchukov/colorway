@@ -91,12 +91,22 @@ function updatedListener(): (tabId: number, changeInfo: unknown, tab: unknown) =
   return (tabId) => listener({ type: "colorway:tab-updated", tabId });
 }
 
-/** Only the `tab` shape the picked-message listener actually reads. */
+/** Only the `tab` shape the picker-result relay adapter reads. */
 type FakeSender = { tab?: { id?: number; url?: string } };
 
-/** runtime.onMessage's listener registered by the panel for the picker's result. */
+/** runtime.onMessage's listener registered by the panel for the picker's result relay. */
 function pickedListener(): (message: unknown, sender?: FakeSender) => undefined {
-  return runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown, sender?: FakeSender) => undefined;
+  const listener = runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown) => undefined;
+  return (message, sender) => {
+    const picked = message as { type?: string; selector?: string };
+    listener({
+      type: "colorway:picker-result",
+      tabId: sender?.tab?.id,
+      tabUrl: sender?.tab?.url,
+      selector: picked.selector,
+      cancelled: picked.type === "colorway:pick-cancelled",
+    });
+  };
 }
 
 /**
