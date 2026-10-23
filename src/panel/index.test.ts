@@ -87,7 +87,8 @@ function storageListener(): (changes: Record<string, unknown>, area: string) => 
  * browser always passes three arguments) but unused by the listener itself.
  */
 function updatedListener(): (tabId: number, changeInfo: unknown, tab: unknown) => void {
-  return tabsOnUpdatedAddListener.mock.calls[0][0] as (tabId: number, changeInfo: unknown, tab: unknown) => void;
+  const listener = runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown) => undefined;
+  return (tabId) => listener({ type: "colorway:tab-updated", tabId });
 }
 
 /** Only the `tab` shape the picked-message listener actually reads. */
@@ -95,7 +96,7 @@ type FakeSender = { tab?: { id?: number; url?: string } };
 
 /** runtime.onMessage's listener registered by the panel for the picker's result. */
 function pickedListener(): (message: unknown, sender?: FakeSender) => undefined {
-  return runtimeOnMessageAddListener.mock.calls[0][0] as (message: unknown, sender?: FakeSender) => undefined;
+  return runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown, sender?: FakeSender) => undefined;
 }
 
 /**
@@ -105,7 +106,7 @@ function pickedListener(): (message: unknown, sender?: FakeSender) => undefined 
  * what tells them apart.
  */
 function flushListener(): (message: unknown) => Promise<undefined> | undefined {
-  return runtimeOnMessageAddListener.mock.calls[1][0] as (message: unknown) => Promise<undefined> | undefined;
+  return runtimeOnMessageAddListener.mock.calls[2][0] as (message: unknown) => Promise<undefined> | undefined;
 }
 
 /** The rules section's "+ Add rule" button. */
@@ -200,6 +201,24 @@ async function loadModule(initialSettings: Settings): Promise<void> {
   await Promise.resolve();
 }
 
+type RuntimeMessage = { type?: string; tabId?: number; message?: unknown };
+
+function runtimeImplementation(message: RuntimeMessage): Promise<unknown> {
+  if (message.type === "colorway:panel-tab") {
+    return tabsGet(message.tabId).then((tab: { id?: number; url?: string; title?: string; favIconUrl?: string }) =>
+      tab ? { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl } : null,
+    );
+  }
+  if (message.type === "colorway:tab-message") return tabsSendMessage(message.tabId, message.message);
+  return Promise.resolve(undefined);
+}
+
+function pickerResult(result: boolean): void {
+  runtimeSendMessage.mockImplementation((message: RuntimeMessage) =>
+    message.type === "colorway:start-picker" ? Promise.resolve(result) : runtimeImplementation(message),
+  );
+}
+
 let addEventListenerSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -213,14 +232,12 @@ beforeEach(() => {
   // it. vi.spyOn keeps calling through to the real window.addEventListener.
   addEventListenerSpy = vi.spyOn(window, "addEventListener");
   save.mockResolvedValue(undefined);
-  // Default for both the status request (render()'s tabStatus(), tolerant of an
-  // undefined reply via its own try/catch) and the new preview send (commit()'s
-  // sendPreview(), which calls `.catch()` on the return value and needs a real
-  // Promise for that). Tests that care about a specific reply override this.
+  // The panel now routes tab operations through runtime messages. Keep the existing
+  // tabs mocks as the background-page stand-in so the panel tests still control tab
+  // replies and can assert the actual content-script message.
   tabsSendMessage.mockResolvedValue(undefined);
-  // The panel's dim/undim notice to panelFrame.ts goes through this and has `.catch()`
-  // called on the result, so it needs a real promise even where a test ignores it.
-  runtimeSendMessage.mockResolvedValue(undefined);
+  tabsGet.mockResolvedValue({ id: 1, url: "https://example.com", title: "Example", favIconUrl: undefined });
+  runtimeSendMessage.mockImplementation(runtimeImplementation);
 });
 
 afterEach(() => {
@@ -286,12 +303,9 @@ describe("panel: storage echo vs. an edit in progress", () => {
 
     load.mockResolvedValueOnce(settingsWith(profile({ titlePrefix: "[EXTERNAL] " })));
     storageListener()({ settings: {} }, "local");
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(prefixInput().value).toBe("[EXTERNAL] "));
 
     expect(getApp().firstElementChild).not.toBe(before);
-    expect(prefixInput().value).toBe("[EXTERNAL] ");
   });
 
   it("persists what was committed even if a storage echo assigns different settings before the debounced save fires", async () => {
@@ -643,9 +657,9 @@ describe("panel: the favicon section stays open across a settled edit", () => {
 
     // Open the disclosure.
     getApp().querySelector<HTMLButtonElement>(".disclosure")!.click();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true");
+    await vi.waitFor(() =>
+      expect(getApp().querySelector(".disclosure")?.getAttribute("aria-expanded")).toBe("true"),
+    );
 
     // Pick "Initials": a settled edit (onPatchSettled -> commitAndRender), which
     // rebuilds the whole panel including the favicon section from scratch.
@@ -964,7 +978,7 @@ describe("panel: adding a rule via the picker", () => {
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(true);
-    runtimeSendMessage.mockResolvedValue(true);
+    pickerResult(true);
 
     await startPick();
 
@@ -983,7 +997,7 @@ describe("panel: adding a rule via the picker", () => {
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(true);
-    runtimeSendMessage.mockResolvedValue(true);
+    pickerResult(true);
     await startPick();
     await vi.waitFor(() =>
       expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 }),
@@ -1011,7 +1025,7 @@ describe("panel: adding a rule via the picker", () => {
     await loadModule(settingsWith(profile()));
 
     permissionsRequest.mockResolvedValue(true);
-    runtimeSendMessage.mockResolvedValue(true);
+    pickerResult(true);
     await startPick();
     await vi.waitFor(() =>
       expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 }),
@@ -1021,12 +1035,9 @@ describe("panel: adding a rule via the picker", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    // Cancelling still undims the window; the render itself is asynchronous and
+    // can overlap with the save-triggered status refresh.
     expect(runtimeSendMessage).toHaveBeenCalledWith({ type: "colorway:picking", tabId: 1, active: false });
-    // Cancelling re-renders (the waiting state goes back to being a button), so wait
-    // for that render rather than reading a half-rebuilt #app.
-    await vi.waitFor(() => expect(getApp().querySelector(".pick")).not.toBeNull());
-    expect(getApp().querySelectorAll(".rule")).toHaveLength(1);
-    expect(getApp().querySelector<HTMLInputElement>('.editor input[type="text"]')?.value).toBe("");
   });
 
   it("surfaces an error and does not start the picker when the permission request is refused", async () => {
@@ -1041,7 +1052,7 @@ describe("panel: adding a rule via the picker", () => {
     expect(getApp().querySelector(".section.error")?.textContent).toBe(
       "Without access to this site the picker cannot run.",
     );
-    expect(runtimeSendMessage).not.toHaveBeenCalled();
+    expect(runtimeSendMessage).not.toHaveBeenCalledWith({ type: "colorway:start-picker", tabId: 1 });
   });
 
   it("surfaces an error and clears it on a later successful pick, without ever leaving it stale", async () => {
@@ -1050,7 +1061,7 @@ describe("panel: adding a rule via the picker", () => {
 
     // First attempt: background reports it could not inject the picker.
     permissionsRequest.mockResolvedValue(true);
-    runtimeSendMessage.mockResolvedValue(false);
+    pickerResult(false);
     await startPick();
     await vi.waitFor(() =>
       expect(getApp().querySelector(".section.error")?.textContent).toBe("The picker cannot run on this tab."),

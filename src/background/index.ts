@@ -23,12 +23,13 @@ async function injectIntoOpenTabs(patterns: string[]): Promise<void> {
   const tabs = await browser.tabs.query({ url: patterns });
   await Promise.all(
     tabs.map(async (tab) => {
-      if (tab.id === undefined) return;
+      if (tab.id === undefined) return undefined;
       try {
         await browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
       } catch {
         // Tab may be discarded or protected; nothing to do.
       }
+      return undefined;
     }),
   );
 }
@@ -57,6 +58,25 @@ async function syncRegistration(): Promise<void> {
 
   await injectIntoOpenTabs(wanted);
 }
+
+/**
+ * The panel is a web-accessible extension page embedded in the site. Some Firefox
+ * derivatives do not expose the tabs namespace in that context, so tab operations
+ * are kept in the background page and requested through runtime messages.
+ */
+browser.runtime.onMessage.addListener((message: unknown): Promise<unknown> | undefined => {
+  const request = message as { type?: string; tabId?: number; message?: unknown };
+  if (request?.type === "colorway:panel-tab" && request.tabId !== undefined) {
+    return browser.tabs.get(request.tabId).then(
+      (tab) => ({ id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl }),
+      () => null,
+    );
+  }
+  if (request?.type === "colorway:tab-message" && request.tabId !== undefined) {
+    return browser.tabs.sendMessage(request.tabId, request.message).catch(() => undefined);
+  }
+  return undefined;
+});
 
 type StartPickerRequest = { type: "colorway:start-picker"; tabId: number };
 
@@ -104,6 +124,12 @@ browser.permissions.onRemoved.addListener(() => void syncRegistration());
  * permission legal. Injects into whichever tab was actually clicked, not "the active
  * tab" queried separately — the two can differ by the time an async lookup resolves.
  */
+browser.tabs.onUpdated.addListener((tabId) => {
+  void browser.runtime.sendMessage({ type: "colorway:tab-updated", tabId }).catch(() => {
+    // The panel may not be open; there is nothing to notify in that case.
+  });
+});
+
 browser.action.onClicked.addListener((tab) => {
   if (tab.id === undefined) return;
   void browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["frame.js"] }).catch(() => {

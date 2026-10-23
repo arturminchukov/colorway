@@ -113,24 +113,21 @@ function parseTabId(search: string): number | undefined {
 const ownTabId = parseTabId(window.location.search);
 
 /**
- * This window's own tab, resolved via `browser.tabs.get` rather than a query: the
- * window belongs to exactly one tab (ownTabId, above), so there is nothing left to
- * disambiguate the way `{ active: true, currentWindow: true }` once did for a side
- * panel that outlived tab switches. Without the "tabs" permission, url/title/
- * favIconUrl on the reply are populated only for sites the extension already has
- * host access to, or for the tab whose toolbar icon was just clicked (activeTab) —
- * exactly the tab this window was opened for. A missing/unparseable id, or a tab
- * that no longer exists (closed between the iframe being created and this
- * resolving), degrades to the same empty result render() already treats as
- * "nothing to work with", rather than throwing.
+ * This window's own tab is resolved by the background page. The panel is a
+ * web-accessible extension page embedded in the site, and Zen does not expose the
+ * tabs namespace in that context. A missing/unparseable id, or a tab that no longer
+ * exists, degrades to the same empty result render() already treats as "nothing to
+ * work with", rather than throwing.
  */
 async function currentTab(): Promise<{ id?: number; url?: string; title?: string; icon?: string }> {
   if (ownTabId === undefined) return {};
   try {
-    const tab = await browser.tabs.get(ownTabId);
-    return { id: tab.id, url: tab.url, title: tab.title, icon: tab.favIconUrl };
+    const tab = (await browser.runtime.sendMessage({ type: "colorway:panel-tab", tabId: ownTabId })) as
+      | { id?: number; url?: string; title?: string; favIconUrl?: string }
+      | null;
+    return tab ? { id: tab.id, url: tab.url, title: tab.title, icon: tab.favIconUrl } : {};
   } catch {
-    // No tab with this id anymore.
+    // The background context may be unavailable, or the tab may no longer exist.
     return {};
   }
 }
@@ -154,9 +151,9 @@ type TabTarget = { id?: number; url?: string };
 function sendPreview(next: Settings, tab: TabTarget): void {
   if (tab.id === undefined || !tab.url) return;
   const message: PreviewMessage = { type: "colorway:preview", profile: pickProfile(tab.url, next.profiles) };
-  // Rejects when no content script is listening (an unconfigured tab, a
-  // browser-internal page) — expected, and not this function's problem to surface.
-  void browser.tabs.sendMessage(tab.id, message).catch(() => {});
+  // The background forwards this to the content script. A missing content script
+  // (an unconfigured tab or a browser-internal page) is expected and ignored.
+  void browser.runtime.sendMessage({ type: "colorway:tab-message", tabId: tab.id, message }).catch(() => {});
 }
 
 /**
@@ -413,7 +410,12 @@ async function tabStatus(
   const empty = { states: new Map<string, RuleState>(), faviconFellBack: false };
   if (tabId === undefined) return empty;
   try {
-    const reply = (await browser.tabs.sendMessage(tabId, { type: "colorway:status" })) as StatusResponse;
+    const reply = (await browser.runtime.sendMessage({
+      type: "colorway:tab-message",
+      tabId,
+      message: { type: "colorway:status" },
+    })) as StatusResponse | undefined;
+    if (!reply) return empty;
     return {
       states: new Map(reply.matches.map((match) => [match.ruleId, match.state])),
       faviconFellBack: reply.faviconFellBack,
@@ -642,14 +644,17 @@ async function render(): Promise<void> {
 // without that, an unrelated tab's load would rebuild #app (kicking focus out of
 // whatever the user is typing into), reintroducing from outside exactly what the
 // commit/commitAndRender split exists to prevent.
-browser.tabs.onUpdated.addListener((tabId) => {
+browser.runtime.onMessage.addListener((message: unknown): undefined => {
+  const update = message as { type?: string; tabId?: number };
+  if (update?.type !== "colorway:tab-updated" || update.tabId !== ownTabId) return undefined;
   // Idle-guarded, not a bare render(): this window's own edits cause these events.
   // A committed favicon color, letters or tab prefix reaches storage 300ms after the
   // last keystroke, the content script repaints the tab's icon and title, and the
   // browser reports that back here as an update to this very tab — mid-typing. A
   // bare render() would rebuild #app and throw the caret out of the field that
   // caused it, which is what the commit()/commitAndRender() split exists to prevent.
-  if (tabId === ownTabId) renderIfIdle();
+  renderIfIdle();
+  return undefined;
 });
 
 type PickedMessage = { type: "colorway:picked"; selector: string };
