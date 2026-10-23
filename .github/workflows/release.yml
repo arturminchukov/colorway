@@ -70,7 +70,7 @@ jobs:
           --api-secret "$AMO_JWT_SECRET"
 
       - name: Publish to Chrome Web Store
-        if: ${{ env.CWS_EXTENSION_ID != '' }}
+        if: ${{ env.CWS_EXTENSION_ID != '' && env.CWS_CLIENT_ID != '' && env.CWS_CLIENT_SECRET != '' && env.CWS_REFRESH_TOKEN != '' }}
         uses: mnao305/chrome-extension-upload@v6.0.0
         with:
           file-path: release/colorway-chrome-${{ env.COLORWAY_VERSION }}.zip
