@@ -1,6 +1,6 @@
 {
   "name": "colorway",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Recolors picked elements of any site and marks the tab so instances are told apart",
   "private": true,
   "license": "MIT",
