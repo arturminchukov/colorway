@@ -56,5 +56,22 @@ describe("panel in a web-accessible extension iframe", () => {
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "colorway:tab-message", tabId: 7 }),
     );
+
+    document.querySelector<HTMLButtonElement>(".link")!.click();
+    expect(sendMessage).toHaveBeenCalledWith({ type: "colorway:open-options" });
+  });
+
+  it("requests site access through runtime when permissions is unavailable in the iframe", async () => {
+    load.mockResolvedValueOnce({ version: 4, palette: [], profiles: [] });
+
+    await import("./index");
+    await vi.waitFor(() => expect(document.getElementById("app")?.textContent).toContain("Set up this site"));
+
+    document.querySelector<HTMLButtonElement>("button.primary")!.click();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: "colorway:has-permission",
+      origins: ["*://example.com/*"],
+    });
   });
 });

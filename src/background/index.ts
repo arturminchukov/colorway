@@ -65,7 +65,7 @@ async function syncRegistration(): Promise<void> {
  * are kept in the background page and requested through runtime messages.
  */
 browser.runtime.onMessage.addListener((message: unknown): Promise<unknown> | undefined => {
-  const request = message as { type?: string; tabId?: number; message?: unknown };
+  const request = message as { type?: string; tabId?: number; message?: unknown; origins?: string[] };
   if (request?.type === "colorway:panel-tab" && request.tabId !== undefined) {
     return browser.tabs.get(request.tabId).then(
       (tab) => ({ id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl }),
@@ -74,6 +74,12 @@ browser.runtime.onMessage.addListener((message: unknown): Promise<unknown> | und
   }
   if (request?.type === "colorway:tab-message" && request.tabId !== undefined) {
     return browser.tabs.sendMessage(request.tabId, request.message).catch(() => undefined);
+  }
+  if (request?.type === "colorway:has-permission" && Array.isArray(request.origins)) {
+    return browser.permissions.contains({ origins: request.origins }).catch(() => false);
+  }
+  if (request?.type === "colorway:open-options") {
+    return browser.runtime.openOptionsPage().then(() => true, () => false);
   }
   return undefined;
 });
@@ -131,8 +137,26 @@ browser.tabs.onUpdated.addListener((tabId) => {
 });
 
 browser.action.onClicked.addListener((tab) => {
-  if (tab.id === undefined) return;
-  void browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["frame.js"] }).catch(() => {
+  const tabId = tab.id;
+  if (tabId === undefined) return;
+
+  // This is the one user-gesture handler in the extension, so request host access
+  // here rather than from the panel iframe. Firefox does not preserve a click's
+  // user-gesture status across runtime.sendMessage(). The frame is still injected
+  // after a denial so the panel can explain that access is required.
+  let permission: Promise<boolean>;
+  try {
+    const url = tab.url;
+    const origin = url && /^https?:/.test(url) ? `*://${new URL(url).hostname}/*` : undefined;
+    permission = origin ? browser.permissions.request({ origins: [origin] }) : Promise.resolve(true);
+  } catch {
+    permission = Promise.resolve(false);
+  }
+
+  void permission.then(
+    () => browser.scripting.executeScript({ target: { tabId }, files: ["frame.js"] }),
+    () => browser.scripting.executeScript({ target: { tabId }, files: ["frame.js"] }),
+  ).catch(() => {
     // Browser-internal pages, the extension store and PDF viewers refuse script
     // injection; nothing the extension can do about it, and nothing to report to.
   });

@@ -314,9 +314,26 @@ function sendPicking(active: boolean, tabId: number): void {
   void browser.runtime.sendMessage({ type: "colorway:picking", tabId, active }).catch(() => {});
 }
 
+function hasPermission(origins: string[]): Promise<boolean> {
+  return browser.runtime.sendMessage({ type: "colorway:has-permission", origins }) as Promise<boolean>;
+}
+
+function hostnameForUrl(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+function originForUrl(url: string): string | undefined {
+  const hostname = hostnameForUrl(url);
+  return hostname ? `*://${hostname}/*` : undefined;
+}
+
 /**
- * permissions.request() must be the first await after the click: the panel is an
- * extension page and this click is the user gesture, which Firefox insists on.
+ * Host access is requested by the toolbar action's background handler, where Firefox
+ * preserves the user gesture. The panel only checks the result before starting a pick.
  *
  * `ruleId` is the rule whose selector this pick will fill. The rule already exists by
  * now — "+ Add rule" creates it empty and its own "Select element" button is what
@@ -328,10 +345,13 @@ function startPicking(url: string, tabId: number | undefined, ruleId: string): v
   pickErrorTabId = undefined;
   pickTargetRuleId = ruleId;
 
-  const origin = `*://${new URL(url).hostname}/*`;
-  void browser.permissions
-    .request({ origins: [origin] })
-    .then(async (granted) => {
+  const origin = originForUrl(url);
+  if (!origin) {
+    pickTargetRuleId = null;
+    failPick("Could not determine this site's origin.", tabId);
+    return;
+  }
+  void hasPermission([origin]).then(async (granted) => {
       if (!granted) {
         pickTargetRuleId = null;
         failPick("Without access to this site the picker cannot run.", tabId);
@@ -363,20 +383,22 @@ function startPicking(url: string, tabId: number | undefined, ruleId: string): v
  * rules list, "+ Add rule" — lives behind a profile, and the only other place one can
  * be created is the options page, by typing a match pattern by hand.
  *
- * permissions.request() must stay the first await after the click, exactly as in
- * startPicking above: this click is the user gesture Firefox insists on. The profile
- * is only created once access is granted — a profile for a site the extension cannot
- * touch would sit there looking configured while painting nothing.
+ * Host access is requested by the toolbar action before this window is injected. The
+ * profile is only created once the background confirms that access was granted — a
+ * profile for a site the extension cannot touch would sit there looking configured
+ * while painting nothing.
  */
 function setUpSite(url: string, tabId: number | undefined): void {
   if (tabId === undefined) return;
   pickError = null;
   pickErrorTabId = undefined;
 
-  const origin = `*://${new URL(url).hostname}/*`;
-  void browser.permissions
-    .request({ origins: [origin] })
-    .then((granted) => {
+  const origin = originForUrl(url);
+  if (!origin) {
+    failPick("Could not determine this site's origin.", tabId);
+    return;
+  }
+  void hasPermission([origin]).then((granted) => {
       if (!granted) {
         failPick("Without access to this site nothing can be applied to it.", tabId);
         return;
@@ -395,7 +417,9 @@ function optionsLink(): HTMLButtonElement {
   const link = document.createElement("button");
   link.className = "link";
   link.textContent = "All settings →";
-  link.addEventListener("click", () => void browser.runtime.openOptionsPage());
+  link.addEventListener("click", () => {
+    void browser.runtime.sendMessage({ type: "colorway:open-options" }).catch(() => {});
+  });
   return link;
 }
 
@@ -465,9 +489,18 @@ async function render(): Promise<void> {
 
   const top = document.createElement("div");
   top.className = "section row";
+  const hostname = hostnameForUrl(tab.url);
+  if (!hostname) {
+    const note = document.createElement("p");
+    note.className = "section error";
+    note.textContent = "The current tab URL is invalid.";
+    app.append(note);
+    return;
+  }
+
   const host = document.createElement("strong");
   host.className = "grow mono";
-  host.textContent = new URL(tab.url).hostname;
+  host.textContent = hostname;
   top.append(host);
 
   if (profile) {

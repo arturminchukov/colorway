@@ -201,7 +201,7 @@ async function loadModule(initialSettings: Settings): Promise<void> {
   await Promise.resolve();
 }
 
-type RuntimeMessage = { type?: string; tabId?: number; message?: unknown };
+type RuntimeMessage = { type?: string; tabId?: number; message?: unknown; origins?: string[] };
 
 function runtimeImplementation(message: RuntimeMessage): Promise<unknown> {
   if (message.type === "colorway:panel-tab") {
@@ -210,6 +210,7 @@ function runtimeImplementation(message: RuntimeMessage): Promise<unknown> {
     );
   }
   if (message.type === "colorway:tab-message") return tabsSendMessage(message.tabId, message.message);
+  if (message.type === "colorway:has-permission") return permissionsRequest({ origins: message.origins });
   return Promise.resolve(undefined);
 }
 
